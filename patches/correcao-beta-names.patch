@@ -1,0 +1,56 @@
+From 59995d816b95eb300e6bf3fda54b6fb3230fd79c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 23:30:24 -0300
+Subject: [PATCH] Usa ubms:::beta_names em vez de model.matrix no submodelo
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+model.matrix para ubmsSubmodel não é exportado pelo ubms; chamado de fora,
+cai no método padrão e falha.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EjfSAJwu1oVmAuYuHgwzur
+---
+ 05_ajusta_grupos.R      | 2 +-
+ 07_combina_tendencias.R | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/05_ajusta_grupos.R b/05_ajusta_grupos.R
+index 700d41f..e535360 100644
+--- a/05_ajusta_grupos.R
++++ b/05_ajusta_grupos.R
+@@ -68,7 +68,7 @@ R_anos <- ano_max - ano_min
+ tendencia <- function(fit) {
+     ## coeficientes fixos de abundancia; a coluna de ano_c e localizada pelo nome
+     b <- extract(fit, "beta_state")[[1]]
+-    b <- b[, match("ano_c", colnames(model.matrix(fit["state"])))]
++    b <- b[, match("ano_c", ubms:::beta_names(fit["state"]))]
+     p <- 100 * (exp(b / R_anos) - 1)
+     tibble(pct_ano = mean(p), ic_inf = quantile(p, 0.025),
+            ic_sup = quantile(p, 0.975), P_declinio = mean(b < 0))
+diff --git a/07_combina_tendencias.R b/07_combina_tendencias.R
+index 07ab0a2..768d69a 100644
+--- a/07_combina_tendencias.R
++++ b/07_combina_tendencias.R
+@@ -36,7 +36,7 @@ re_sorteios <- function(fit, submodel = "state") {
+     re   <- ubms:::get_reTrms(sm@formula, sm@data)
+     b    <- extract(fit, paste0("b_", submodel))[[1]]
+     beta <- extract(fit, paste0("beta_", submodel))[[1]]
+-    bn   <- colnames(model.matrix(sm))
++    bn   <- ubms:::beta_names(sm)
+     out <- list()
+     for (i in seq_along(re$cnms)) {
+         fac <- names(re$cnms)[i]; trm <- re$cnms[[i]]
+@@ -49,7 +49,7 @@ re_sorteios <- function(fit, submodel = "state") {
+ }
+ 
+ beta_g <- extract(m_grp, "beta_state")[[1]]
+-bn_g   <- colnames(model.matrix(m_grp["state"]))
++bn_g   <- ubms:::beta_names(m_grp["state"])
+ g0 <- beta_g[, match("(Intercept)", bn_g)]   ## log densidade de grupos (por ha) em ano_min
+ g1 <- beta_g[, match("ano_c", bn_g)]         ## variacao no log ao longo do periodo
+ re_g  <- re_sorteios(m_grp, "state")
+-- 
+2.43.0
+
