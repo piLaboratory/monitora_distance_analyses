@@ -14,10 +14,16 @@
 ##   especie <- "Tayassu pecari"
 ##   forcar_modelo <- "g_com"     ## opcional (sensibilidade); se ausente ou NULL,
 ##                                ## usa a escolha gravada pelo 05
+##   crit_min_grupos <- 15; crit_min_anos <- 3   ## opcional (padrao)
 ##   source("07_combina_tendencias.R")
-## Produz: tend_media (UC tipica) e tend_uc (por UC)
+## Produz: tend_media (UC tipica), dens_ind e tend_uc (por UC), gravados em
+## resultados/<Especie>_<modelo>_*.csv
 
 library(ubms); library(brms); library(tidyverse)
+## Criterio para uma UC ter tendencia propria classificada: numero minimo de
+## grupos detectados e de anos com ao menos uma deteccao
+if (!exists("crit_min_grupos")) crit_min_grupos <- 15
+if (!exists("crit_min_anos"))   crit_min_anos   <- 3
 ## Modelo de grupos: o forcado pelo usuario ou o escolhido no 05 (phi)
 if (exists("forcar_modelo") && !is.null(forcar_modelo)) {
     modelo_grupos <- forcar_modelo
@@ -107,6 +113,7 @@ print(as.data.frame(tend_media), digits = 3)
 
 ## Densidade de individuos (ind/ha) no primeiro e no ultimo ano, UC tipica
 dens_ind <- tibble(
+    especie = especie,
     ano = c(ano_min, ano_max),
     media  = c(mean(exp(g0[ig]) * tam_ini), mean(exp(g0[ig] + g1[ig]) * tam_fim)),
     ic_inf = c(quantile(exp(g0[ig]) * tam_ini, 0.025),
@@ -128,7 +135,37 @@ tend_uc <- map_dfr(seq_along(ucs), function(k) {
     mutate(across(-cnuc, as.numeric),
            evidencia = case_when(ic_sup < 0 ~ "declinio",
                                  ic_inf > 0 ~ "aumento",
-                                 TRUE       ~ "inconclusivo")) |>
+                                 TRUE       ~ "inconclusivo"))
+
+## Dados de cada UC: grupos detectados e anos com deteccao (apos truncagem)
+dados_uc <-
+    ua |>
+    mutate(n_grp = rowSums(y_ua), cnuc = as.character(cnuc)) |>
+    summarise(n_grupos = sum(n_grp), anos_amostrados = n(),
+              anos_com_deteccao = sum(n_grp > 0), .by = cnuc)
+
+## UCs que nao atingem o criterio: a tendencia estimada reflete sobretudo a
+## media geral (encolhimento), e nao e classificada
+tend_uc <-
+    tend_uc |>
+    left_join(dados_uc, by = "cnuc") |>
+    mutate(classificavel = n_grupos >= crit_min_grupos &
+                           anos_com_deteccao >= crit_min_anos,
+           evidencia = if_else(classificavel, evidencia, "nao classificavel"),
+           especie = especie, modelo = modelo_grupos) |>
     left_join(distinct(monitora.mam, cnuc, uc), by = "cnuc") |>
-    relocate(uc, .after = cnuc)
+    relocate(especie, modelo, cnuc, uc) |>
+    arrange(desc(classificavel), media)
 print(as.data.frame(tend_uc), digits = 3)
+message(sprintf("07 (%s): %d de %d UCs classificaveis (>= %d grupos em >= %d anos)",
+                especie, sum(tend_uc$classificavel), nrow(tend_uc),
+                crit_min_grupos, crit_min_anos))
+
+################################################################################
+## Grava os resultados
+################################################################################
+dir.create("resultados", showWarnings = FALSE)
+pref_res <- file.path("resultados", paste0(gsub(" ", "_", especie), "_", modelo_grupos))
+write_csv(mutate(tend_media, modelo = modelo_grupos), paste0(pref_res, "_tend_media.csv"))
+write_csv(mutate(dens_ind,  modelo = modelo_grupos), paste0(pref_res, "_dens_ind.csv"))
+write_csv(tend_uc, paste0(pref_res, "_tend_uc.csv"))
