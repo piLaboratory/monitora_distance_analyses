@@ -15,7 +15,7 @@
 library(tidyverse)
 
 ## Criterio de UC classificavel (grupos detectados, anos com deteccao)
-crit_min_grupos <- 15
+crit_min_grupos <- 10
 crit_min_anos   <- 3
 
 ## Especies: as da tabela de ocorrencia conferida
