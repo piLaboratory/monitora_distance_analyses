@@ -52,8 +52,8 @@ R_anos <- ano_max - ano_min
 re_sorteios <- function(fit, submodel = "state") {
     sm   <- fit[submodel]
     re   <- ubms:::get_reTrms(sm@formula, sm@data)
-    b    <- extract(fit, paste0("b_", submodel))[[1]]
-    beta <- extract(fit, paste0("beta_", submodel))[[1]]
+    b    <- ubms::extract(fit, paste0("b_", submodel))[[1]]
+    beta <- ubms::extract(fit, paste0("beta_", submodel))[[1]]
     bn   <- ubms:::beta_names(sm)
     out <- list()
     for (i in seq_along(re$cnms)) {
@@ -66,7 +66,7 @@ re_sorteios <- function(fit, submodel = "state") {
     out
 }
 
-beta_g <- extract(m_grp, "beta_state")[[1]]
+beta_g <- ubms::extract(m_grp, "beta_state")[[1]]
 bn_g   <- ubms:::beta_names(m_grp["state"])
 g0 <- beta_g[, match("(Intercept)", bn_g)]   ## log densidade de grupos (por ha) em ano_min
 g1 <- beta_g[, match("ano_c", bn_g)]         ## variacao no log ao longo do periodo
