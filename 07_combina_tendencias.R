@@ -32,7 +32,8 @@ modelo_grupos <- if (exists("forcar_modelo") && !is.null(forcar_modelo)) forcar_
 message(sprintf("07 (%s): modelo de grupos = %s", especie, modelo_grupos))
 
 pref  <- file.path(dir_ajustes, gsub(" ", "_", especie))
-m_grp <- readRDS(paste0(pref, "_", modelo_grupos, ".rds"))
+estrutura <- if (escolha$inclinacao_uc) "incl" else "noincl"
+m_grp <- readRDS(paste0(pref, "_", modelo_grupos, "_", estrutura, ".rds"))
 m_tam <- list(individuos    = readRDS(paste0(pref, "_tam_dist.rds")),
               individuos_sc = readRDS(paste0(pref, "_tam_dist_sc.rds")))
 dist_c0 <- (0 - mean(dados_tam$dist.m)) / sd(dados_tam$dist.m)  ## distancia 0, padronizacao do 04

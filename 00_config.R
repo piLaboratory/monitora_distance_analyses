@@ -11,10 +11,12 @@ dir_resultados <- paste0("resultados_", versao) ## tabelas de resultados
 ## as demais tres faixas sao tercis das distancias acima desse limite.
 primeira_faixa_m <- 2
 
-## Especies com menos grupos detectados (apos a truncagem) que este limite sao
-## ajustadas sem inclinacao aleatoria por UC: abundancia ~ ano_c + (1 | cnuc).
-## Com poucas deteccoes o desvio das inclinacoes nao e estimavel (BFMI baixo).
-lim_grupos_inclinacao <- 400
+## Inclinacao aleatoria por UC: cada especie e ajustada primeiro COM
+## inclinacao por UC (g_sem); se nao convergir (Rhat maximo acima de
+## conv_max_rhat ou BFMI minimo abaixo de conv_min_bfmi), os modelos sao
+## reajustados SEM inclinacao por UC: abundancia ~ ano_c + (1 | cnuc).
+conv_max_rhat <- 1.01
+conv_min_bfmi <- 0.2
 
 ## Escolha do modelo de grupos: g_com se o phi ajustado do g_sem passar disto
 limiar_phi <- 1.5

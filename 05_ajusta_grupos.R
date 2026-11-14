@@ -2,10 +2,12 @@
 ## Ajusta dois modelos e compara:
 ##   g_sem : abundancia ~ ano_c + (ano_c || cnuc)
 ##   g_com : abundancia ~ ano_c + (ano_c || cnuc) + (1 | cnuc_ano)
-## Especies com menos de lim_grupos_inclinacao grupos (00_config.R) sao
-## ajustadas sem inclinacao aleatoria por UC (so a tendencia media):
-##   g_sem : abundancia ~ ano_c + (1 | cnuc)
-##   g_com : abundancia ~ ano_c + (1 | cnuc) + (1 | cnuc_ano)
+## Criterio de convergencia (00_config.R), decidido por especie no g_sem:
+##   1. ajusta g_sem COM inclinacao aleatoria por UC;
+##   2. se max Rhat > conv_max_rhat ou BFMI minimo < conv_min_bfmi, a especie
+##      passa a usar os dois modelos SEM inclinacao por UC (so tendencia media):
+##        g_sem : abundancia ~ ano_c + (1 | cnuc)
+##        g_com : abundancia ~ ano_c + (1 | cnuc) + (1 | cnuc_ano)
 ## Deteccao (ambos): half-normal, log(sigma) ~ ano_c
 ##   Sem efeito de UC na deteccao: com poucas deteccoes por UC, deteccao e
 ##   abundancia de cada UC nao sao separaveis (divergencias concentradas em
@@ -20,7 +22,7 @@
 ## Uso:
 ##   especie <- "Tayassu pecari"
 ##   source("05_ajusta_grupos.R")
-## Salva em <dir_ajustes>/<Especie>_g_sem.rds e _g_com.rds
+## Salva em <dir_ajustes>/<Especie>_<modelo>_<incl|noincl>.rds
 
 library(ubms)
 source("04_prepara_dados_uc_ano.R")
@@ -46,34 +48,12 @@ ajusta <- function(formula, iter) {
 }
 
 ## Formula dupla do ubms: ~ deteccao ~ abundancia
-inclinacao_uc <- sum(y_ua) >= lim_grupos_inclinacao
-formulas <- if (inclinacao_uc) list(
-    g_sem = ~ ano_c ~ ano_c + (ano_c || cnuc),
-    g_com = ~ ano_c ~ ano_c + (ano_c || cnuc) + (1 | cnuc_ano)
-) else list(
-    g_sem = ~ ano_c ~ ano_c + (1 | cnuc),
-    g_com = ~ ano_c ~ ano_c + (1 | cnuc) + (1 | cnuc_ano))
-message(sprintf("%s: %d grupos -> %s inclinacao aleatoria por UC", especie,
-                sum(y_ua), if (inclinacao_uc) "com" else "sem"))
+formulas <- list(
+    incl   = list(g_sem = ~ ano_c ~ ano_c + (ano_c || cnuc),
+                  g_com = ~ ano_c ~ ano_c + (ano_c || cnuc) + (1 | cnuc_ano)),
+    noincl = list(g_sem = ~ ano_c ~ ano_c + (1 | cnuc),
+                  g_com = ~ ano_c ~ ano_c + (1 | cnuc) + (1 | cnuc_ano)))
 
-## Ajusta (ou carrega, se ja existir um ajuste com o mesmo numero de iteracoes)
-for (m in names(formulas)) {
-    salvo <- if (file.exists(arq(m))) readRDS(arq(m)) else NULL
-    if (!is.null(salvo) && salvo@stanfit@sim$iter == iter_modelo[[m]]) {
-        assign(m, salvo)
-    } else {
-        t0 <- Sys.time()
-        fit <- ajusta(formulas[[m]], iter_modelo[[m]])
-        message(sprintf("%s %s: %.1f min", especie, m,
-                        as.numeric(difftime(Sys.time(), t0, units = "mins"))))
-        saveRDS(fit, arq(m))
-        assign(m, fit)
-    }
-}
-
-################################################################################
-## Comparacao
-################################################################################
 ## 1. Convergencia. Criterios: Rhat < 1.01 e n_eff > 400 nos parametros
 ##    principais (beta_ e sigma_), nenhuma divergencia, BFMI > 0.3.
 ##    O n_eff minimo dos desvios (sigma_) e mostrado a parte: e o ponto
@@ -90,7 +70,39 @@ convergencia <- function(fit) {
            min_BFMI      = min(rstan::get_bfmi(fit@stanfit)))
 }
 
-## 2. Tendencia media de grupos (%/ano), com IC 95%
+convergiu <- function(fit) {
+    cv <- convergencia(fit)
+    cv$max_Rhat <= conv_max_rhat && cv$min_BFMI >= conv_min_bfmi
+}
+
+## Ajusta (ou carrega, se ja existir um ajuste com o mesmo numero de iteracoes)
+carrega_ou_ajusta <- function(m, estrutura) {
+    nome  <- paste0(m, "_", estrutura)
+    salvo <- if (file.exists(arq(nome))) readRDS(arq(nome)) else NULL
+    if (!is.null(salvo) && salvo@stanfit@sim$iter == iter_modelo[[m]]) return(salvo)
+    t0 <- Sys.time()
+    fit <- ajusta(formulas[[estrutura]][[m]], iter_modelo[[m]])
+    message(sprintf("%s %s: %.1f min", especie, nome,
+                    as.numeric(difftime(Sys.time(), t0, units = "mins"))))
+    saveRDS(fit, arq(nome))
+    fit
+}
+
+## Decisao da estrutura pela convergencia do g_sem com inclinacao por UC
+g_sem <- carrega_ou_ajusta("g_sem", "incl")
+conv_incl <- convergencia(g_sem)
+inclinacao_uc <- convergiu(g_sem)
+if (!inclinacao_uc) g_sem <- carrega_ou_ajusta("g_sem", "noincl")
+estrutura <- if (inclinacao_uc) "incl" else "noincl"
+g_com <- carrega_ou_ajusta("g_com", estrutura)
+message(sprintf("%s: g_sem com inclinacao -> Rhat %.3f, BFMI %.2f => %s inclinacao por UC",
+                especie, conv_incl$max_Rhat, conv_incl$min_BFMI,
+                if (inclinacao_uc) "COM" else "SEM"))
+
+################################################################################
+## Comparacao
+################################################################################
+## 1. Tendencia media de grupos (%/ano), com IC 95%
 R_anos <- ano_max - ano_min
 tendencia <- function(fit) {
     ## coeficientes fixos de abundancia; a coluna de ano_c e localizada pelo nome
@@ -101,7 +113,7 @@ tendencia <- function(fit) {
            ic_sup = quantile(p, 0.975), P_declinio = mean(b < 0))
 }
 
-## 3. Dispersao de Pearson nos totais por UC-ano, com o valor esperado
+## 2. Dispersao de Pearson nos totais por UC-ano, com o valor esperado
 ##    NAO condicionado aos dados: E[y_i] = lambda_i * area_i * p_i, onde p_i e a
 ##    probabilidade de detectar um grupo dentro da faixa truncada, calculado em
 ##    cada sorteio e depois promediado.
@@ -158,14 +170,15 @@ grava <- function(tab, arquivo) {
     }
     write_csv(arrange(tab, especie), arquivo)
 }
-grava(mutate(comparacao, inclinacao_uc = inclinacao_uc),
+grava(mutate(comparacao, inclinacao_uc = inclinacao_uc,
+             teste_incl_Rhat = conv_incl$max_Rhat, teste_incl_BFMI = conv_incl$min_BFMI),
       file.path(dir_ajustes, "comparacao_modelos.csv"))
 grava(tibble(especie = especie, phi_aj_g_sem = phi_aj_sem,
              limiar_phi = limiar_phi, modelo_principal = modelo_principal,
              inclinacao_uc = inclinacao_uc),
       file.path(dir_ajustes, "escolha_modelos.csv"))
 
-## 4. Ajuste (qui-quadrado posterior preditivo do ubms). Usa a mesma simulacao
+## 3. Ajuste (qui-quadrado posterior preditivo do ubms). Usa a mesma simulacao
 ##    condicional aos dados; e pouco sensivel a sobredispersao.
 ##    Em ajustes mal convergidos o sorteio pode falhar (probabilidades NA);
 ##    nesse caso o gof e pulado e o fluxo continua.
@@ -174,7 +187,7 @@ gof_seguro <- function(fit) tryCatch(gof(fit, draws = 500), error = function(e) 
 gof_sem <- gof_seguro(g_sem); gof_com <- gof_seguro(g_com)
 print(gof_sem); print(gof_com)
 
-## 5. LOO. Atencao: com efeito por observacao (cnuc_ano) o PSIS-LOO costuma
+## 4. LOO. Atencao: com efeito por observacao (cnuc_ano) o PSIS-LOO costuma
 ##    ter muitos k de Pareto altos; nesse caso a comparacao nao e confiavel e
 ##    vale mais olhar convergencia, phi e o IC da tendencia.
 ms <- loo::loo_compare(list(g_sem = loo_sem, g_com = loo_com))
