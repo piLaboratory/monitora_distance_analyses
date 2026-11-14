@@ -68,7 +68,7 @@ R_anos <- ano_max - ano_min
 tendencia <- function(fit) {
     ## coeficientes fixos de abundancia; a coluna de ano_c e localizada pelo nome
     b <- extract(fit, "beta_state")[[1]]
-    b <- b[, match("ano_c", colnames(model.matrix(fit["state"])))]
+    b <- b[, match("ano_c", ubms:::beta_names(fit["state"]))]
     p <- 100 * (exp(b / R_anos) - 1)
     tibble(pct_ano = mean(p), ic_inf = quantile(p, 0.025),
            ic_sup = quantile(p, 0.975), P_declinio = mean(b < 0))
