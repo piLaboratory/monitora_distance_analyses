@@ -6,7 +6,7 @@
 args <- commandArgs(trailingOnly = TRUE)
 stopifnot(length(args) >= 1)
 especie <- args[1]
-source("00_config.R")   ## pastas e criterios
+source(Sys.getenv("CONFIG_ANALISE", "00_config.R"))  ## pastas e criterios
 
 t0 <- Sys.time()
 message("=== ", especie, " | inicio ", format(t0), " ===")

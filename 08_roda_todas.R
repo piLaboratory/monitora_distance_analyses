@@ -13,7 +13,7 @@
 ## Log de cada especie: logs/<versao>_<Especie>.log
 
 library(tidyverse)
-source("00_config.R")
+source(Sys.getenv("CONFIG_ANALISE", "00_config.R"))  ## configuracoes (00_config.R por padrao)
 
 ## Especies: as da tabela de ocorrencia conferida
 oc <- read.csv("data/conferencia_ocorrencia_especies_nas_ucs.csv")

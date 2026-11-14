@@ -2,7 +2,7 @@
 ## Carrega pacotes necessários
 library(tidyverse)
 library(lubridate)
-source("00_config.R")
+source(Sys.getenv("CONFIG_ANALISE", "00_config.R"))  ## configuracoes (00_config.R por padrao)
 
 ################################################################################
 ## Leitura dos dados
