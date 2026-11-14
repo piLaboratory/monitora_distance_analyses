@@ -1,0 +1,468 @@
+From f9c35fb25fc714ba029a74428b37caaa2f9cec5b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 22:59:15 -0300
+Subject: [PATCH] =?UTF-8?q?Corrige=20prepara=C3=A7=C3=A3o=20dos=20dados=20?=
+ =?UTF-8?q?(esfor=C3=A7o,=20filtro=20taxon=C3=B4mico,=20ano,=20tamanho=20d?=
+ =?UTF-8?q?e=20grupo)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 01: esforço calculado com a tabela completa da Amazônia, antes de filtros
+  taxonômicos (antes ~40% do esforço e as visitas sem mamíferos se perdiam)
+- 01: filtro por class_taxon_val (nível validado) em vez de nivel_taxon
+- 01: mantém registros com n_animais ausente (contam como avistamento)
+- 01: corrige inconsistências entre ano da campanha e data
+- 01: marca registros válidos para tamanho de grupo (tam_valido): exclui
+  contagens parciais e valores acima de data/tamanho_max_grupo.csv
+- 02: esforço anual a partir da tabela de esforço corrigida
+- 03: filtro da espécie usa .env$especie (a coluna 'especie' mascarava a
+  variável e todas as espécies recebiam os mesmos dados)
+- 03: matrizes de indivíduos (y_ind) e de grupos (y_grp); escolha por 'contagem'
+- 03: faixas de distância robustas a quantis empatados; checagens de totais
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EjfSAJwu1oVmAuYuHgwzur
+---
+ 01_prepara_dados.R            | 149 ++++++++++++++++++++++--------
+ 02_seleciona_especies.R       |  18 ++--
+ 03_prepara_dados_da_especie.R | 167 ++++++++++++++++++----------------
+ data/tamanho_max_grupo.csv    |  16 ++++
+ 4 files changed, 225 insertions(+), 125 deletions(-)
+ create mode 100644 data/tamanho_max_grupo.csv
+
+diff --git a/01_prepara_dados.R b/01_prepara_dados.R
+index 48d9704..556dfd8 100644
+--- a/01_prepara_dados.R
++++ b/01_prepara_dados.R
+@@ -6,46 +6,121 @@ library(lubridate)
+ ################################################################################
+ ## Leitura dos dados
+ ################################################################################
+-## Baixa os arquivos do GitHub do monitora.
+-monitora <- read_csv("data/dados_relatorio_florestal_mastoaves_2026.csv") 
+-################################################################################
+-## Preparar um data.frame com os registros de mamiferos apenas
+-################################################################################
+-## Retira Cachorro domestico dos dados, corrige grafia de Alouatta sp
+-## e transfere duas categorias spp para sp.
+-## e elimina os poucos registros de 2023
+-## Seleciona bioma Amazônia e mamiferos)
+-monitora.mam <-
++monitora <- read_csv("data/dados_relatorio_florestal_mastoaves_2026.csv",
++                     show_col_types = FALSE)
++
++## Tabela de tamanho máximo plausível de grupo por espécie (conferir à mão).
++## Registros com n_animais acima deste valor são marcados como anômalos.
++tam_max <- read_csv("data/tamanho_max_grupo.csv", show_col_types = FALSE)
++
++## Todos os registros do bioma Amazônia, de qualquer classe (aves, mamíferos
++## e linhas de "visita sem registro"), com identificadores padronizados.
++monitora.amz <-
+     monitora |>
+-    filter(taxon_validado!="Canis familiaris",
+-           classe=="Mammalia", bioma=="Amazônia",
+-           nivel_taxon == "Espécie",
+-           distancia < 100) |>
++    filter(bioma == "Amazônia") |>
+     mutate(cnuc = as.character(cnuc),
+-           ea = paste(cnuc,ea, sep="_"),
+-           data = mdy(data)) |>
+-    select(cnuc,uc, ano, ea, data:distancia)|>
+-    rename(dist.m = distancia) |>
+-    na.omit()
++           ea = paste(cnuc, ea, sep = "_"),
++           data = mdy(data),
++           cont_tot_par = str_trim(cont_tot_par))
++
++## Coerência entre 'ano' (ano da campanha) e a data.
++## O ano da campanha pode diferir em 1 do ano da data (campanhas que atravessam
++## a virada do ano, ex. Parna do Viruá). Duas correções:
++## (a) diferença > 1 ano: considera erro de digitação no ano da data e o
++##     substitui pelo ano da campanha;
++## (b) mesma UC e data com mais de um 'ano': usa o ano mais frequente nas
++##     linhas daquela UC e data (empate: o ano da data).
++correcoes_ano <- list(
++    a = monitora.amz |>
++        filter(abs(year(data) - ano) > 1) |>
++        distinct(cnuc, uc, ea, data, ano))
++monitora.amz <-
++    monitora.amz |>
++    mutate(data = if_else(abs(year(data) - ano) > 1,
++                          make_date(ano, month(data), day(data)), data))
++ano_por_data <-
++    monitora.amz |>
++    count(cnuc, data, ano) |>
++    arrange(cnuc, data, desc(n), desc(ano == year(data))) |>
++    group_by(cnuc, data) |>
++    mutate(n_anos = n()) |>
++    slice(1) |>
++    ungroup() |>
++    select(cnuc, data, ano_corrigido = ano, n_anos)
++correcoes_ano$b <-
++    monitora.amz |>
++    left_join(ano_por_data, by = c("cnuc", "data")) |>
++    filter(ano != ano_corrigido) |>
++    distinct(cnuc, uc, ea, data, ano, ano_corrigido)
++monitora.amz <-
++    monitora.amz |>
++    left_join(select(ano_por_data, -n_anos), by = c("cnuc", "data")) |>
++    mutate(ano = ano_corrigido) |>
++    select(-ano_corrigido)
++
++## Período do estudo (usado para padronizar o ano em 0-1)
++ano_min <- min(monitora.amz$ano)
++ano_max <- max(monitora.amz$ano)
++
+ ################################################################################
+-## Data frame com esforco em cada  UC, e data
++## Esforço por transecto (ea) e data
+ ################################################################################
+-## Data frame com o esforco por cnuc e data
++## O esforço (km) é anotado em uma única linha por transecto e data, que pode
++## ser de qualquer registro (ave, mamífero ou linha sem registro). Por isso o
++## esforço é calculado com a tabela completa, ANTES de qualquer filtro
++## taxonômico. Cada linha desta tabela é uma visita a um transecto.
+ esforco <-
+-    monitora |>
+-    filter(taxon_validado!="Canis familiaris",
+-           classe=="Mammalia", bioma=="Amazônia",
+-           nivel_taxon == "Espécie",
+-           distancia < 100) |>
+-    mutate(cnuc = as.character(cnuc),
+-           ea = paste(cnuc,ea, sep="_"),
+-           data = mdy(data)) |>
+-    ## seleciona variaveis necessarias
+-    select(cnuc, ea, data, esforco) |>
+-    ## remove linhas com NAs
+-    na.omit() |>
+-    group_by(cnuc, ea, data) |>
+-    ## Retem o valor maximo de esforço de cada UC, EA e data, convertido em metros
+-    summarise(tlength = max(esforco)*1000, .groups = "drop")
+-    
++    monitora.amz |>
++    group_by(cnuc, ea, data, ano) |>
++    summarise(n_valores = sum(!is.na(esforco)),
++              tlength = if (all(is.na(esforco))) NA_real_
++                        else max(esforco, na.rm = TRUE) * 1000, ## em metros
++              .groups = "drop")
++## Visitas sem esforço anotado não podem ser usadas (nem seus registros)
++visitas_sem_esforco <- filter(esforco, is.na(tlength))
++esforco <- filter(esforco, !is.na(tlength)) |> select(-n_valores)
++
++################################################################################
++## Registros de mamíferos
++################################################################################
++## - Exclui cachorro doméstico
++## - Usa o nível taxonômico VALIDADO (class_taxon_val), não o de campo
++## - Exige distância anotada e < 100 m
++## - Mantém registros com n_animais ausente: cada linha é um avistamento
++##   (grupo), válido para a contagem de grupos mesmo sem o tamanho
++## - Descarta registros de visitas sem esforço anotado
++monitora.mam <-
++    monitora.amz |>
++    filter(classe == "Mammalia",
++           class_taxon_val == "Espécie",
++           taxon_validado != "Canis familiaris",
++           !is.na(distancia), distancia < 100) |>
++    semi_join(esforco, by = c("cnuc", "ea", "data")) |>
++    select(cnuc, uc, ano, ea, data, estacao, taxon_validado,
++           n_animais, cont_tot_par, distancia, plaqueta) |>
++    rename(dist.m = distancia) |>
++    left_join(tam_max, by = "taxon_validado") |>
++    ## Marcação dos registros que podem entrar na estimativa de tamanho de grupo
++    mutate(
++        anomalo = !is.na(n_animais) & !is.na(tam_max_grupo) &
++                  n_animais > tam_max_grupo,
++        tam_valido = !is.na(n_animais) & n_animais > 0 &
++                     cont_tot_par %in% "total" & !anomalo,
++        motivo_tam_invalido = case_when(
++            is.na(n_animais) | n_animais == 0 ~ "n_animais ausente ou zero",
++            anomalo                           ~ "acima do máximo plausível",
++            !(cont_tot_par %in% "total")      ~ "contagem parcial ou sem informação",
++            TRUE                              ~ NA_character_)
++    )
++
++## Registros idênticos em todos os campos (possíveis duplicatas de digitação).
++## Apenas relatados; não são removidos.
++duplicatas <-
++    monitora.mam |>
++    filter(duplicated(pick(everything())) | duplicated(pick(everything()), fromLast = TRUE))
+ 
++message(sprintf(
++    "01_prepara_dados: correções de ano/data: %d visitas (data) e %d visitas (ano); %d visitas transecto-data com esforço (%.0f km); %d sem esforço descartadas; %d registros de mamíferos; %d com tamanho válido; %d linhas em possíveis duplicatas.",
++    nrow(correcoes_ano$a), nrow(correcoes_ano$b),
++    nrow(esforco), sum(esforco$tlength) / 1000, nrow(visitas_sem_esforco),
++    nrow(monitora.mam), sum(monitora.mam$tam_valido), nrow(duplicatas)))
+diff --git a/02_seleciona_especies.R b/02_seleciona_especies.R
+index 8bb1504..22732ed 100644
+--- a/02_seleciona_especies.R
++++ b/02_seleciona_especies.R
+@@ -5,18 +5,12 @@ n.cnuc.ano <-
+     monitora.mam |>
+     mutate(cnuc = as.character(cnuc)) |>
+     summarise(n_encontros=n(), .by=c(taxon_validado, cnuc, ano))
+-## Data frame com o esforco total por ano
++## Data frame com o esforco total (km) por UC e ano
++## Usa a tabela de esforço do script 01 (uma linha por transecto e data),
++## que soma todos os transectos percorridos
+ esforco.cnuc.ano <-
+-    monitora.mam |>
+-    ## seleciona variaveis necessarias
+-    select(cnuc, data, esforco, ano) |> 
+-    mutate(cnuc = as.character(cnuc)) |>
+-    ## remove linhas com NAs
+-    na.omit() |>
+-    ## Retem o valor maximo de esforço de cada UC, EA e data
+-    summarise(esf.max = max(esforco), .by = c(cnuc, ano, data)) |>
+-    ## Calcula numero de dias e total de distancia percorrida nos transectos
+-    summarise (esforco_anual = sum(esf.max), .by=c(cnuc, ano))
++    esforco |>
++    summarise(esforco_anual = sum(tlength) / 1000, .by = c(cnuc, ano))
+ ## Anexa esforco anual ao dataframe de n de encontros
+ n.cnuc.ano.esf <-
+     left_join(n.cnuc.ano, esforco.cnuc.ano, by=join_by(cnuc, ano))
+@@ -31,7 +25,7 @@ tot.encontros <-
+     ungroup() |>
+     mutate(taxa_enc_10km=10*tot_encontros/tot_esforco) 
+ 
+-## Nosso criterio : pelo menos 100 registros em pelo menos 14 UCs
++## Nosso criterio : pelo menos 150 registros em pelo menos 14 UCs
+ selecionadas <-
+     filter(tot.encontros, tot_encontros>=150, sites>=14)|>
+     arrange(-tot_encontros, -sites, -anos) |>
+diff --git a/03_prepara_dados_da_especie.R b/03_prepara_dados_da_especie.R
+index 3044911..0264d3c 100644
+--- a/03_prepara_dados_da_especie.R
++++ b/03_prepara_dados_da_especie.R
+@@ -1,105 +1,121 @@
+ library(unmarked)
+ ## Prepara os dados da especie a ser analisada ##
++## Requer, antes de executar:
++##   especie  : nome valido da especie, ex. "Tayassu pecari"
++##   contagem : opcional, "individuos" (padrao) ou "grupos" (n de avistamentos)
++if (!exists("contagem")) contagem <- "individuos"
++stopifnot(contagem %in% c("individuos", "grupos"))
+ 
+-## Executa o script que baixa e prepara os dados com todos os registros
++## Executa o script que prepara os dados com todos os registros
+ source("01_prepara_dados.R")
+ 
++################################################################################
++## UCs onde a especie pode ocorrer
++################################################################################
++## Leitura do csv com as ocorrencias (conferido a mao)
++ocorrencias <-
++    read.csv("data/conferencia_ocorrencia_especies_nas_ucs.csv", na.strings = "NA")[, c("cnuc", gsub(" ", ".", especie))]
++ucs_especie <- as.character(ocorrencias$cnuc[ocorrencias[, 2] %in% TRUE])
++
+ ################################################################################
+ ## Dados com avistamentos da especie
+ ################################################################################
+-## Dataframe com os avistamentos apenas da especie
++## Obs.: .env$especie e necessario porque monitora.mam pode ter uma coluna
++## chamada "especie"; sem isso o filtro compararia com a coluna.
++dados_todos <- filter(monitora.mam, taxon_validado == .env$especie)
++## Registros fora das UCs de ocorrencia (devem ser zero; se nao, conferir o csv)
++fora_ucs <- filter(dados_todos, !cnuc %in% ucs_especie)
++if (nrow(fora_ucs) > 0)
++    warning(sprintf("%d registros de %s em UCs fora da tabela de ocorrencia; descartados.",
++                    nrow(fora_ucs), especie))
++## Truncagem: descarta as 10% distancias mais longas (recomendado para este modelo)
++dist_trunc <- unname(quantile(dados_todos$dist.m, 0.9))
+ dados <-
+-    filter(monitora.mam,
+-           ## seleciona registros da especie
+-           taxon_validado==especie,
+-           ## descarta as 10% distancias mais longas (recomendado para este modelo)
+-           dist.m<=quantile(dist.m, 0.9)) |>
+-    na.omit() |>
+-    select(dist.m, data, ano, cnuc, n_animais)
+-## Define classes de distancia de avistamento (necessario para o modelo)
+-## Classes como quintis de distancia, para declarar no modelo
+-dist_breaks <- quantile(dados$dist.m, probs = seq(0, 1, length.out = 6), na.rm = TRUE)
+-dist_breaks[5] <- dist_breaks[5] + 0.1
+-if(any(diff(dist_breaks) <= 0))
+-    dist_breaks <- c(0,1,2,5,10,max(dados$dist.m) + 0.1)
+-## Converte em KM
+-dist_breaks <- unname(dist_breaks)/1000
++    dados_todos |>
++    filter(cnuc %in% ucs_especie, dist.m <= dist_trunc)
++
++## Classes de distancia (necessario para o modelo): quintis das distancias.
++## Quando ha empates (ex.: muitas distancias 0), os limites repetidos sao
++## fundidos e o numero de classes fica menor que 5.
++dist_breaks <- unique(unname(quantile(dados$dist.m, probs = seq(0, 1, length.out = 6))))
++if (length(dist_breaks) < 4) {
++    ## Menos de 3 classes: usa limites fixos dentro da amplitude observada
++    dist_breaks <- unique(c(0, c(1, 2, 5, 10)[c(1, 2, 5, 10) < max(dados$dist.m)],
++                            max(dados$dist.m)))
++}
++## O ultimo limite e o maximo observado; cut(include.lowest = TRUE) inclui 0 e o maximo
++## Converte em km
++dist_breaks <- dist_breaks / 1000
+ nbins <- length(dist_breaks) - 1
+-bin_labels <- 1:nbins  
++bin_labels <- 1:nbins
+ ## Adiciona a classe de distancia ao dataframe de avistamentos
+-dados$dist_bin <- cut(dados$dist.m/1000, breaks = dist_breaks,
+-                      include.lowest=TRUE, labels=bin_labels)
+-
+-## Dados de esforco (em Km de transecto) para cada UC, e data
+-visits <- 
+-  mutate(esforco,
+-         data     = as.Date(data)) |>
+-    summarise(tlength=sum(tlength)/1000, .by=c(cnuc, data)) |>
+-    mutate(ano= as.integer(format(data, "%Y")))
++dados$dist_bin <- cut(dados$dist.m / 1000, breaks = dist_breaks,
++                      include.lowest = TRUE, labels = bin_labels)
++stopifnot(!any(is.na(dados$dist_bin)))
+ 
++################################################################################
++## Visitas: UC x data, com o esforco somado de todos os transectos percorridos
++################################################################################
++## Esforco em km de transecto para cada UC e data (tabela esforco do script 01)
++visits <-
++    esforco |>
++    filter(cnuc %in% ucs_especie) |>
++    summarise(tlength = sum(tlength) / 1000, .by = c(cnuc, data, ano))
++stopifnot(!anyDuplicated(visits[, c("cnuc", "data")]))
+ 
+-## Filtra apenas paras UCS onde a especie pode ocorrer
+-## Leitura do csv que tem os dados de ocorrencias (conferido a mão, deve estar no mesmo diretorio)
+-ocorrencias <-
+-    read.csv("data/conferencia_ocorrencia_especies_nas_ucs.csv", na.string="NA")[, c("cnuc",gsub(" ", ".", especie))]
+-## Filtra apenas as UCS com registro de ocorrencia
+-visits <- filter(visits, cnuc %in% ocorrencias[ocorrencias[,2],1])
+-
+-## Dataframe com n de animais avistados
+-## Agrega avistamentos (individuos ao invés de eventos)
+-## Soma de  n_animais por visita e classe de distancia
++################################################################################
++## Contagens por visita e classe de distancia
++################################################################################
++## n_ind: soma de n_animais (registros sem n_animais contam 0 individuos)
++## n_grp: numero de avistamentos (grupos), independente do tamanho
+ y_long <-
+     dados |>
+-    mutate(data = as.Date(data)) |>
+     group_by(cnuc, data, dist_bin) |>
+-    summarise(n_ind = sum(n_animais, na.rm = TRUE), .groups = "drop")
++    summarise(n_ind = sum(n_animais, na.rm = TRUE),
++              n_grp = n(), .groups = "drop") |>
++    mutate(dist_bin = factor(dist_bin, levels = bin_labels))
+ ## Formata para uma tabela com uma coluna por classe de distancia
+-y_wide <-
+-    y_long |>
+-    mutate(dist_bin = factor(dist_bin, levels = bin_labels)) |>
+-    pivot_wider(names_from = dist_bin, values_from = n_ind,
+-                names_prefix = "bin_", values_fill = 0,
+-                names_sort = TRUE)
+-## Agrega aos dados de eventos os dados de visitas
+-visit_y <-
++## (todas as classes presentes, mesmo as sem nenhum registro)
++para_matriz <- function(var) {
+     visits |>
+-  left_join(y_wide, by = c("cnuc", "data")) |>
+-  mutate(across(starts_with("bin_"), ~ replace_na(.x, 0)))
+-## visit_y <-
+-##     visits |>
+-##   left_join(y_wide, by = c("cnuc", "ano")) |>
+-##   mutate(across(starts_with("bin_"), ~ replace_na(.x, 0)))
+-
+-## Verifica se todas as colunas de distancia existem, mesmo se alguns bins têm zero por todo o dataset
+-missing_bins <- setdiff(paste0("bin_", bin_labels), names(visit_y))
+-for (b in missing_bins) visit_y[[b]] <- 0
+-## Monta a matriz para o modelo: cada linha é um evento de inspeção
+-## (um transecto em uma data) e as colunas indicam quantos animais
+-## foram avistados a cada intervalo de distancia
++        left_join(select(y_long, cnuc, data, dist_bin, n = all_of(var)),
++                  by = c("cnuc", "data")) |>
++        complete(nesting(cnuc, data, ano, tlength), dist_bin = factor(bin_labels, levels = bin_labels),
++                 fill = list(n = 0)) |>
++        filter(!is.na(dist_bin)) |>
++        pivot_wider(names_from = dist_bin, values_from = n,
++                    names_prefix = "bin_", names_sort = TRUE) |>
++        arrange(cnuc, data)
++}
++visit_ind <- para_matriz("n_ind")
++visit_grp <- para_matriz("n_grp")
++stopifnot(identical(visit_ind[, c("cnuc", "data")], visit_grp[, c("cnuc", "data")]))
+ bin_cols <- paste0("bin_", bin_labels)
+-y <- as.matrix(visit_y[, bin_cols])
+-storage.mode(y) <- "integer"
++y_ind <- as.matrix(visit_ind[, bin_cols]); storage.mode(y_ind) <- "integer"
++y_grp <- as.matrix(visit_grp[, bin_cols]); storage.mode(y_grp) <- "integer"
++## Matriz usada no modelo: cada linha e uma visita (UC em uma data)
++y <- if (contagem == "grupos") y_grp else y_ind
+ 
+ ################################################################################
+-## Monta a tabela com as covariaveis de site (UC)
++## Monta a tabela com as covariaveis de site (visita)
+ ################################################################################
+ site_covs <-
+-    visit_y |>
++    visit_ind |>
+     mutate(
+-        ## Cada ano em proporcao ao intervalo ano minimo-ano-maximo
+-        ano_c = (ano - min(monitora.mam$ano))/(max(monitora.mam$ano)-min(monitora.mam$ano)), 
+-        cnuc_ano = factor(paste(cnuc,ano,sep="_")),
++        ## Cada ano em proporcao ao intervalo ano minimo-ano maximo do estudo
++        ano_c = (ano - ano_min) / (ano_max - ano_min),
++        cnuc_ano = factor(paste(cnuc, ano, sep = "_")),
+         cnuc  = factor(cnuc),
+         ano_f = factor(ano)) |>
+     select(cnuc, data, ano, ano_f, ano_c, cnuc_ano, tlength) |>
+-    na.omit()
++    as.data.frame()
+ 
+ ## Algumas verificacoes ##
+-## Numero de linhas das duas tabelas deve ser igual
+-stopifnot(nrow(site_covs) == nrow(y))
+-## Sem valores NA para comprimento do transecto na tabela de covariaveis do site
+-all(!is.na(site_covs$tlength)) ## deve ser TRUE
+-
++stopifnot(nrow(site_covs) == nrow(y),
++          !any(is.na(site_covs)),
++          ## todos os avistamentos retidos entraram na matriz
++          sum(y_grp) == nrow(dados),
++          sum(y_ind) == sum(dados$n_animais, na.rm = TRUE))
+ 
+ ################################################################################
+ ## Monta o objeto necessário para o ajuste do modelo
+@@ -110,8 +126,7 @@ umf <- unmarkedFrameDS(
+   dist.breaks = dist_breaks,
+   survey      = "line",
+   tlength     = site_covs$tlength,
+-  unitsIn     = "km"   ## distancia de avistamento e de comprimento do transecto em metros
++  unitsIn     = "km"   ## distancias de avistamento e comprimentos de transecto em km
+ )
+-#verifica 
++#verifica
+ summary(umf)
+-
+diff --git a/data/tamanho_max_grupo.csv b/data/tamanho_max_grupo.csv
+new file mode 100644
+index 0000000..414fc80
+--- /dev/null
++++ b/data/tamanho_max_grupo.csv
+@@ -0,0 +1,16 @@
++taxon_validado,tam_max_grupo,nota
++Ateles chamek,55,"Macacos-aranha-da-cara-preta apresentam um sistema fluido de organização social, do tipo fissão-fusão, com grandes grupos multimacho-multifêmea de 37 a 55 indivíduos (Wallace, 2005; Konstant & Rylands, 2013)"
++Cebus unicolor,40,"Se suspeita que Cebus unicolor deve apresentar tamanho médio dos grupos similar ao de Cebus albifrons, que é de 19,8 (Fragaszy et al., 2004)."
++Dicotyles tajacu,40,"embora existam alguns relatos de bandos com mais de 30 animais (Day, 1985; Fragoso,1999)."
++Eira barbara,4,"é solitária, apesar de poder ocorrer em pares. Geralmente quando são observados em grupos, estes são compostos pela fêmea e seus filhotes."
++Guerlinguetus aestuans,3,"PROPOSTA A CONFERIR: solitário"
++Hadrosciurus spadiceus,3,"PROPOSTA A CONFERIR: solitário"
++Mazama americana,3,"PROPOSTA A CONFERIR: solitário, fêmea com filhote ou casal"
++Mazama nemorivaga,3,"PROPOSTA A CONFERIR: solitário, fêmea com filhote ou casal"
++Nasua nasua,40,",vivem em bandos de em média 6,6 indivíduos, porém há registros no Pantanal de grupos de mais de 30 indivíduos"
++Sapajus apella,50,"grupos sociais constituídos por cerca de 5 a 20 indivíduos (Oliveira et al. 2009), podendo compreender até 40 indivíduos"
++Sapajus macrocephalus,40,"PROPOSTA A CONFERIR: grupos sociais"
++Sciurillus pusillus,6,"PROPOSTA A CONFERIR: solitário ou pequenos grupos"
++Tamandua tetradactyla,2,"PROPOSTA A CONFERIR: solitário ou fêmea com filhote"
++Tapirus terrestris,3,"PROPOSTA A CONFERIR: solitário, fêmea com filhote ou casal"
++Tayassu pecari,150," estudo de Jácomo (2004) dentro da área do Parque Nacional das Emas, trabalhando com 19 bandos de queixadas, estimou que os tamanhos dos grupos variaram de 15 a 150 indivíduos"
+-- 
+2.43.0
+

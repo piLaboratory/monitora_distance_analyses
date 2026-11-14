@@ -1,0 +1,422 @@
+From c67f083a4b5af72378e7e032c2c37fc0da6ab778 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 23:19:58 -0300
+Subject: [PATCH] =?UTF-8?q?Modelo=20de=20grupos=20por=20UC-ano,=20tamanho?=
+ =?UTF-8?q?=20de=20grupo=20censurado=20e=20combina=C3=A7=C3=A3o?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 04: agrega contagens de grupos e esforço por UC-ano; prepara dados de
+  tamanho de grupo com contagens parciais censuradas à direita
+- 05: ubms, densidade de grupos com detecção ~ ano_c + (1|cnuc); compara
+  abundância com e sem (1|cnuc_ano) (convergência, tendência, phi, gof, LOO)
+- 06: brms, n_animais - 1 ~ binomial negativa censurada,
+  ano_c + (ano_c||cnuc); checa efeito da distância no tamanho
+- 07: combina sorteios em densidade e tendência de indivíduos, média e por UC
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EjfSAJwu1oVmAuYuHgwzur
+---
+ 04_prepara_dados_uc_ano.R |  75 +++++++++++++++++++++++
+ 05_ajusta_grupos.R        | 110 ++++++++++++++++++++++++++++++++++
+ 06_ajusta_tamanho.R       |  59 +++++++++++++++++++
+ 07_combina_tendencias.R   | 121 ++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 365 insertions(+)
+ create mode 100644 04_prepara_dados_uc_ano.R
+ create mode 100644 05_ajusta_grupos.R
+ create mode 100644 06_ajusta_tamanho.R
+ create mode 100644 07_combina_tendencias.R
+
+diff --git a/04_prepara_dados_uc_ano.R b/04_prepara_dados_uc_ano.R
+new file mode 100644
+index 0000000..4cae747
+--- /dev/null
++++ b/04_prepara_dados_uc_ano.R
+@@ -0,0 +1,75 @@
++## Prepara os dados agregados por UC-ano para o modelo de GRUPOS
++## e os dados de tamanho de grupo para o modelo censurado.
++## Requer, antes de executar:
++##   especie : nome valido da especie, ex. "Tayassu pecari"
++## Produz:
++##   umf_ua    : unmarkedFrameDS, uma linha por UC-ano, contagem de grupos
++##   dados_tam : um avistamento por linha, para o modelo de tamanho de grupo
++
++## Contagem de grupos (numero de avistamentos) por visita e classe de distancia
++contagem <- "grupos"
++source("03_prepara_dados_da_especie.R")
++
++################################################################################
++## Agregacao por UC-ano
++################################################################################
++## Sob Poisson, somar as visitas de um UC-ano nao muda a informacao sobre a
++## tendencia; a pseudorreplicacao e tratada no modelo pelo efeito aleatorio
++## (1 | cnuc_ano), que aqui e um efeito por observacao.
++ua <-
++    bind_cols(site_covs, as.data.frame(y_grp)) |>
++    group_by(cnuc, ano) |>
++    summarise(across(all_of(bin_cols), sum),
++              tlength = sum(tlength),       ## km percorridos no UC-ano
++              n_visitas = n(),
++              .groups = "drop") |>
++    mutate(ano_c    = (ano - ano_min) / (ano_max - ano_min),
++           cnuc_ano = factor(paste(cnuc, ano, sep = "_")),
++           cnuc     = factor(cnuc)) |>
++    arrange(cnuc, ano)
++
++y_ua <- as.matrix(ua[, bin_cols]); storage.mode(y_ua) <- "integer"
++site_covs_ua <- as.data.frame(select(ua, cnuc, ano, ano_c, cnuc_ano, tlength, n_visitas))
++
++stopifnot(sum(y_ua) == sum(y_grp),
++          isTRUE(all.equal(sum(site_covs_ua$tlength), sum(site_covs$tlength))),
++          !anyDuplicated(site_covs_ua$cnuc_ano))
++
++umf_ua <- unmarkedFrameDS(
++    y           = y_ua,
++    siteCovs    = site_covs_ua,
++    dist.breaks = dist_breaks,
++    survey      = "line",
++    tlength     = site_covs_ua$tlength,
++    unitsIn     = "km")   ## distancias e comprimentos em km
++
++################################################################################
++## Dados de tamanho de grupo (censurado)
++################################################################################
++## Usa os mesmos avistamentos do modelo de grupos (UCs de ocorrencia, distancias
++## truncadas). Exclui n_animais ausente/zero e os anomalos (acima do maximo
++## plausivel). Contagens parciais entram como censuradas a direita.
++##
++## Variavel resposta: s = n_animais - 1 (todo grupo tem ao menos 1 animal).
++## Censura no brms: cens = "right" usa log P(S > y). Uma contagem parcial de n
++## animais informa que o grupo tinha n ou mais, ou seja S >= n - 1, isto e,
++## S > n - 2. Por isso, para as parciais, s_obs = n - 2.
++## Parciais com n = 1 nao informam nada (todo grupo tem >= 1) e sao excluidas.
++dados_tam <-
++    dados |>
++    filter(!is.na(n_animais), n_animais > 0, !anomalo,
++           !(cont_tot_par %in% "parcial" & n_animais == 1)) |>
++    mutate(parcial  = cont_tot_par %in% "parcial",
++           ## registros sem informacao de contagem (NA) sao tratados como totais
++           censura  = if_else(parcial, "right", "none"),
++           s_obs    = if_else(parcial, n_animais - 2, n_animais - 1),
++           ano_c    = (ano - ano_min) / (ano_max - ano_min),
++           dist_c   = (dist.m - mean(dist.m)) / sd(dist.m),
++           cnuc     = factor(cnuc)) |>
++    select(cnuc, ano, ano_c, data, dist.m, dist_c, n_animais, parcial,
++           censura, s_obs)
++
++message(sprintf(
++    "04 (%s): %d UC-anos, %d UCs, %d grupos, %.0f km; tamanho: %d avistamentos (%d parciais).",
++    especie, nrow(ua), nlevels(ua$cnuc), sum(y_ua), sum(ua$tlength),
++    nrow(dados_tam), sum(dados_tam$parcial)))
+diff --git a/05_ajusta_grupos.R b/05_ajusta_grupos.R
+new file mode 100644
+index 0000000..700d41f
+--- /dev/null
++++ b/05_ajusta_grupos.R
+@@ -0,0 +1,110 @@
++## Modelo de distancia para a densidade de GRUPOS, dados agregados por UC-ano.
++## Ajusta dois modelos e compara:
++##   m_sem : abundancia ~ ano_c + (ano_c || cnuc)
++##   m_com : abundancia ~ ano_c + (ano_c || cnuc) + (1 | cnuc_ano)
++## Deteccao (ambos): half-normal, log(sigma) ~ ano_c + (1 | cnuc)
++##
++## Uso:
++##   especie <- "Tayassu pecari"
++##   source("05_ajusta_grupos.R")
++## Salva em ajustes_grupos/<Especie>_m_sem.rds e _m_com.rds
++
++library(ubms)
++source("04_prepara_dados_uc_ano.R")
++
++## Configuracoes do amostrador (iguais as do modelo anterior)
++cfg <- list(chains = 6, iter = 2000, warmup = 1000,
++            cores = min(6, parallel::detectCores()),
++            adapt_delta = 0.9, max_treedepth = 12)
++
++dir.create("ajustes_grupos", showWarnings = FALSE)
++arq <- function(m) file.path("ajustes_grupos",
++                             paste0(gsub(" ", "_", especie), "_", m, ".rds"))
++
++ajusta <- function(formula) {
++    stan_distsamp(formula, data = umf_ua,
++                  keyfun = "halfnorm", output = "density", unitsOut = "ha",
++                  chains = cfg$chains, iter = cfg$iter, warmup = cfg$warmup,
++                  cores = cfg$cores, refresh = 0,
++                  control = list(adapt_delta = cfg$adapt_delta,
++                                 max_treedepth = cfg$max_treedepth))
++}
++
++## Formula dupla do ubms: ~ deteccao ~ abundancia
++f_sem <- ~ ano_c + (1 | cnuc) ~ ano_c + (ano_c || cnuc)
++f_com <- ~ ano_c + (1 | cnuc) ~ ano_c + (ano_c || cnuc) + (1 | cnuc_ano)
++
++## Ajusta (ou carrega, se ja existir)
++for (m in c("m_sem", "m_com")) {
++    if (file.exists(arq(m))) {
++        assign(m, readRDS(arq(m)))
++    } else {
++        t0 <- Sys.time()
++        fit <- ajusta(if (m == "m_sem") f_sem else f_com)
++        message(sprintf("%s %s: %.1f min", especie, m,
++                        as.numeric(difftime(Sys.time(), t0, units = "mins"))))
++        saveRDS(fit, arq(m))
++        assign(m, fit)
++    }
++}
++
++################################################################################
++## Comparacao
++################################################################################
++## 1. Convergencia: Rhat < 1.01 e n_eff > 400 nos parametros principais;
++##    divergencias pos-aquecimento
++convergencia <- function(fit) {
++    s <- summary(fit@stanfit)$summary
++    principais <- grepl("^beta_|^sigma_", rownames(s))
++    np <- rstan::get_sampler_params(fit@stanfit, inc_warmup = FALSE)
++    tibble(max_Rhat   = max(s[principais, "Rhat"], na.rm = TRUE),
++           min_n_eff  = min(s[principais, "n_eff"], na.rm = TRUE),
++           divergencias = sum(sapply(np, function(x) sum(x[, "divergent__"]))),
++           treedepth_max = sum(sapply(np, function(x) sum(x[, "treedepth__"] >= cfg$max_treedepth))))
++}
++
++## 2. Tendencia media de grupos (%/ano), com IC 95%
++R_anos <- ano_max - ano_min
++tendencia <- function(fit) {
++    ## coeficientes fixos de abundancia; a coluna de ano_c e localizada pelo nome
++    b <- extract(fit, "beta_state")[[1]]
++    b <- b[, match("ano_c", colnames(model.matrix(fit["state"])))]
++    p <- 100 * (exp(b / R_anos) - 1)
++    tibble(pct_ano = mean(p), ic_inf = quantile(p, 0.025),
++           ic_sup = quantile(p, 0.975), P_declinio = mean(b < 0))
++}
++
++## 3. Dispersao de Pearson nos totais por UC-ano (esperado pela media
++##    posterior preditiva). phi ~ 1 indica que a variancia esta bem descrita.
++##    No m_com o esperado ja inclui o efeito de cada UC-ano, entao phi tende a
++##    ficar <= 1 por construcao; o phi informativo e o do m_sem.
++##    posterior_predict devolve colunas na ordem UC-ano 1 (faixas 1..J),
++##    UC-ano 2 (faixas 1..J), ... (conferido no codigo do ubms).
++dispersao <- function(fit) {
++    yrep <- posterior_predict(fit, "y", draws = 1000)  ## draws x (UC-ano*faixa)
++    e <- matrix(colMeans(yrep), nrow = nrow(y_ua), byrow = TRUE)
++    obs <- rowSums(y_ua); esp <- rowSums(e)
++    sum((obs - esp)^2 / esp) / (length(obs) - 1)
++}
++
++comparacao <-
++    bind_rows(
++        bind_cols(modelo = "sem cnuc_ano", convergencia(m_sem), tendencia(m_sem),
++                  phi = dispersao(m_sem)),
++        bind_cols(modelo = "com cnuc_ano", convergencia(m_com), tendencia(m_com),
++                  phi = dispersao(m_com))) |>
++    mutate(especie = especie, .before = 1)
++print(as.data.frame(comparacao), digits = 3)
++
++## 4. Ajuste (qui-quadrado posterior preditivo do ubms)
++gof_sem <- gof(m_sem, draws = 500); gof_com <- gof(m_com, draws = 500)
++print(gof_sem); print(gof_com)
++
++## 5. LOO. Atencao: com efeito por observacao (cnuc_ano) o PSIS-LOO costuma
++##    ter muitos k de Pareto altos; nesse caso a comparacao nao e confiavel e
++##    vale mais olhar convergencia, phi e o IC da tendencia.
++ms <- modSel(fitList(sem_cnuc_ano = m_sem, com_cnuc_ano = m_com))
++print(ms)
++
++## Desvio do efeito UC-ano (quanto maior, mais variacao extra-Poisson entre anos)
++print(summary(m_com, "state"))
+diff --git a/06_ajusta_tamanho.R b/06_ajusta_tamanho.R
+new file mode 100644
+index 0000000..32af27a
+--- /dev/null
++++ b/06_ajusta_tamanho.R
+@@ -0,0 +1,59 @@
++## Modelo de TAMANHO DE GRUPO, com contagens parciais censuradas a direita.
++##   s = n_animais - 1 ~ binomial negativa
++##   s | cens(censura) ~ ano_c + (ano_c || cnuc)
++## Tamanho medio do grupo num ano: E[n] = 1 + exp(eta)
++##
++## Uso:
++##   especie <- "Tayassu pecari"
++##   source("06_ajusta_tamanho.R")
++## Salva em ajustes_grupos/<Especie>_tam.rds (e _tam_dist.rds)
++
++library(brms)
++if (!exists("dados_tam") || !identical(attr(dados_tam, "especie"), especie)) {
++    source("04_prepara_dados_uc_ano.R")
++    attr(dados_tam, "especie") <- especie
++}
++
++dir.create("ajustes_grupos", showWarnings = FALSE)
++arq_tam <- function(m) file.path("ajustes_grupos",
++                                 paste0(gsub(" ", "_", especie), "_", m))
++
++## Priors fracamente informativos (escala log do tamanho medio - 1)
++priors <- c(prior(normal(0, 2), class = "Intercept"),
++            prior(normal(0, 1), class = "b"),
++            prior(student_t(3, 0, 1), class = "sd"),
++            prior(gamma(2, 0.5), class = "shape"))
++
++m_tam <- brm(s_obs | cens(censura) ~ ano_c + (ano_c || cnuc),
++             data = dados_tam, family = negbinomial(), prior = priors,
++             chains = 6, iter = 2000, warmup = 1000,
++             cores = min(6, parallel::detectCores()),
++             control = list(adapt_delta = 0.95),
++             backend = "rstan", seed = 1,
++             file = arq_tam("tam"))   ## carrega o ajuste se o arquivo ja existir
++
++print(summary(m_tam))
++
++################################################################################
++## Checagens
++################################################################################
++## 1. Tendencia do tamanho medio do grupo numa UC tipica (efeitos aleatorios = 0)
++R_anos <- ano_max - ano_min
++dr <- as_draws_df(m_tam)
++n_ini <- 1 + exp(dr$b_Intercept)                  ## tamanho medio em ano_min
++n_fim <- 1 + exp(dr$b_Intercept + dr$b_ano_c)     ## tamanho medio em ano_max
++pct_tam <- 100 * ((n_fim / n_ini)^(1 / R_anos) - 1)
++print(c(tam_medio_ini = mean(n_ini), tam_medio_fim = mean(n_fim),
++        pct_ano = mean(pct_tam), quantile(pct_tam, c(0.025, 0.975))))
++
++## 2. Tamanho registrado depende da distancia? (grupos grandes detectados
++##    mais longe indicam vies de tamanho na deteccao). Coeficiente de dist_c
++##    claramente positivo = sinal de vies.
++m_tam_dist <- update(m_tam, formula. = ~ . + dist_c, newdata = dados_tam,
++                     file = arq_tam("tam_dist"))
++print(fixef(m_tam_dist)["dist_c", ])
++
++## 3. Fracao de contagens parciais ao longo dos anos (se muda, a censura
++##    e importante para a tendencia do tamanho)
++print(dados_tam |> summarise(n = n(), frac_parcial = mean(parcial), .by = ano) |>
++      arrange(ano))
+diff --git a/07_combina_tendencias.R b/07_combina_tendencias.R
+new file mode 100644
+index 0000000..07ab0a2
+--- /dev/null
++++ b/07_combina_tendencias.R
+@@ -0,0 +1,121 @@
++## Combina densidade de grupos (ubms) e tamanho medio de grupo (brms) em
++## densidade e tendencia de INDIVIDUOS, propagando a incerteza pelos sorteios.
++##
++##   D_ind(t) = D_grp(t) * (1 + exp(eta_tam(t)))
++##   tendencia (%/ano) = 100 * ((D_ind(fim) / D_ind(ini))^(1/R) - 1)
++##
++## O tamanho medio (1 + exp(eta)) nao e log-linear no ano, por isso a
++## tendencia e calculada pela razao entre o ultimo e o primeiro ano, e nao
++## somando inclinacoes.
++## Os dois modelos sao ajustados separadamente; os sorteios sao pareados ao
++## acaso (posteriores independentes).
++##
++## Uso:
++##   especie <- "Tayassu pecari"
++##   modelo_grupos <- "m_com"     ## ou "m_sem"
++##   source("07_combina_tendencias.R")
++## Produz: tend_media (UC tipica) e tend_uc (por UC)
++
++library(ubms); library(brms); library(tidyverse)
++if (!exists("modelo_grupos")) modelo_grupos <- "m_com"
++source("04_prepara_dados_uc_ano.R")
++
++pref <- file.path("ajustes_grupos", gsub(" ", "_", especie))
++m_grp <- readRDS(paste0(pref, "_", modelo_grupos, ".rds"))
++m_tam <- readRDS(paste0(pref, "_tam.rds"))
++R_anos <- ano_max - ano_min
++
++################################################################################
++## Sorteios do modelo de grupos
++################################################################################
++## Efeitos aleatorios completos (fixo + aleatorio) por nivel, em sorteios.
++## ranef() do ubms devolve so a media quando summary = FALSE, entao os
++## sorteios sao montados aqui seguindo a mesma logica interna do ubms.
++re_sorteios <- function(fit, submodel = "state") {
++    sm   <- fit[submodel]
++    re   <- ubms:::get_reTrms(sm@formula, sm@data)
++    b    <- extract(fit, paste0("b_", submodel))[[1]]
++    beta <- extract(fit, paste0("beta_", submodel))[[1]]
++    bn   <- colnames(model.matrix(sm))
++    out <- list()
++    for (i in seq_along(re$cnms)) {
++        fac <- names(re$cnms)[i]; trm <- re$cnms[[i]]
++        d <- b[, (re$Gp[i] + 1):re$Gp[i + 1], drop = FALSE]
++        if (trm %in% bn) d <- d + beta[, match(trm, bn)]
++        colnames(d) <- levels(re$flist[[fac]])
++        out[[paste(fac, trm, sep = ":")]] <- d
++    }
++    out
++}
++
++beta_g <- extract(m_grp, "beta_state")[[1]]
++bn_g   <- colnames(model.matrix(m_grp["state"]))
++g0 <- beta_g[, match("(Intercept)", bn_g)]   ## log densidade de grupos (por ha) em ano_min
++g1 <- beta_g[, match("ano_c", bn_g)]         ## variacao no log ao longo do periodo
++re_g  <- re_sorteios(m_grp, "state")
++g0_uc <- re_g[["cnuc:(Intercept)"]]          ## sorteios x UCs
++g1_uc <- re_g[["cnuc:ano_c"]]
++ucs   <- colnames(g0_uc)
++
++################################################################################
++## Sorteios do modelo de tamanho
++################################################################################
++## Preditor linear em ano_min e ano_max para a UC tipica (re_formula = NA) e
++## para cada UC do modelo de grupos. UCs sem dados de tamanho recebem um
++## efeito aleatorio sorteado da distribuicao estimada (sample_new_levels).
++nd <- expand_grid(cnuc = ucs, ano_c = c(0, 1))
++eta_uc  <- posterior_linpred(m_tam, newdata = nd, allow_new_levels = TRUE,
++                             sample_new_levels = "gaussian")
++eta_med <- posterior_linpred(m_tam, newdata = tibble(ano_c = c(0, 1)),
++                             re_formula = NA)
++
++## Pareia os sorteios ao acaso, com o mesmo numero nos dois modelos
++set.seed(1)
++nd_s <- min(nrow(beta_g), nrow(eta_uc))
++ig <- sample(nrow(beta_g), nd_s); it <- sample(nrow(eta_uc), nd_s)
++
++resume <- function(p) c(media = mean(p), ic_inf = unname(quantile(p, 0.025)),
++                        ic_sup = unname(quantile(p, 0.975)), P_declinio = mean(p < 0))
++
++################################################################################
++## UC tipica (efeitos aleatorios = 0)
++################################################################################
++tam_ini <- 1 + exp(eta_med[it, 1]); tam_fim <- 1 + exp(eta_med[it, 2])
++pct_grp <- 100 * (exp(g1[ig] / R_anos) - 1)
++pct_tam <- 100 * ((tam_fim / tam_ini)^(1 / R_anos) - 1)
++pct_ind <- 100 * ((exp(g1[ig]) * tam_fim / tam_ini)^(1 / R_anos) - 1)
++
++tend_media <- bind_rows(
++    c(componente = "grupos",     resume(pct_grp)),
++    c(componente = "tamanho",    resume(pct_tam)),
++    c(componente = "individuos", resume(pct_ind))) |>
++    mutate(across(-componente, as.numeric), especie = especie, .before = 1)
++print(as.data.frame(tend_media), digits = 3)
++
++## Densidade de individuos (ind/ha) no primeiro e no ultimo ano, UC tipica
++dens_ind <- tibble(
++    ano = c(ano_min, ano_max),
++    media  = c(mean(exp(g0[ig]) * tam_ini), mean(exp(g0[ig] + g1[ig]) * tam_fim)),
++    ic_inf = c(quantile(exp(g0[ig]) * tam_ini, 0.025),
++               quantile(exp(g0[ig] + g1[ig]) * tam_fim, 0.025)),
++    ic_sup = c(quantile(exp(g0[ig]) * tam_ini, 0.975),
++               quantile(exp(g0[ig] + g1[ig]) * tam_fim, 0.975)))
++print(dens_ind)
++
++################################################################################
++## Por UC
++################################################################################
++col_ini <- match(paste(ucs, 0), paste(nd$cnuc, nd$ano_c))
++col_fim <- match(paste(ucs, 1), paste(nd$cnuc, nd$ano_c))
++tend_uc <- map_dfr(seq_along(ucs), function(k) {
++    r_tam <- (1 + exp(eta_uc[it, col_fim[k]])) / (1 + exp(eta_uc[it, col_ini[k]]))
++    p <- 100 * ((exp(g1_uc[ig, k]) * r_tam)^(1 / R_anos) - 1)
++    as_tibble_row(c(cnuc = ucs[k], resume(p)))
++}) |>
++    mutate(across(-cnuc, as.numeric),
++           evidencia = case_when(ic_sup < 0 ~ "declinio",
++                                 ic_inf > 0 ~ "aumento",
++                                 TRUE       ~ "inconclusivo")) |>
++    left_join(distinct(monitora.mam, cnuc, uc), by = "cnuc") |>
++    relocate(uc, .after = cnuc)
++print(as.data.frame(tend_uc), digits = 3)
+-- 
+2.43.0
+
