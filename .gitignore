@@ -7,3 +7,6 @@ src/*.so
 .*.swp
 *#*
 ajustes_grupos/
+logs/
+resultados/
+patches/
