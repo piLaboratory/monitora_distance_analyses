@@ -2,6 +2,7 @@
 ## Carrega pacotes necessários
 library(tidyverse)
 library(lubridate)
+source("00_config.R")
 
 ################################################################################
 ## Leitura dos dados

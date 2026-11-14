@@ -34,15 +34,14 @@ dados <-
     dados_todos |>
     filter(cnuc %in% ucs_especie, dist.m <= dist_trunc)
 
-## Classes de distancia (necessario para o modelo): quintis das distancias.
-## Quando ha empates (ex.: muitas distancias 0), os limites repetidos sao
-## fundidos e o numero de classes fica menor que 5.
-dist_breaks <- unique(unname(quantile(dados$dist.m, probs = seq(0, 1, length.out = 6))))
-if (length(dist_breaks) < 4) {
-    ## Menos de 3 classes: usa limites fixos dentro da amplitude observada
-    dist_breaks <- unique(c(0, c(1, 2, 5, 10)[c(1, 2, 5, 10) < max(dados$dist.m)],
-                            max(dados$dist.m)))
-}
+## Classes de distancia (necessario para o modelo).
+## Primeira faixa: 0 a primeira_faixa_m (00_config.R), larga o bastante para
+## absorver o acumulo de distancias registradas como 0. Demais: tercis das
+## distancias acima desse limite (3 faixas). Limites repetidos sao fundidos.
+acima <- dados$dist.m[dados$dist.m > primeira_faixa_m]
+dist_breaks <- unique(unname(c(0, primeira_faixa_m,
+                               quantile(acima, c(1/3, 2/3)), max(dados$dist.m))))
+stopifnot(length(dist_breaks) >= 4, !is.unsorted(dist_breaks))
 ## O ultimo limite e o maximo observado; cut(include.lowest = TRUE) inclui 0 e o maximo
 ## Converte em km
 dist_breaks <- dist_breaks / 1000

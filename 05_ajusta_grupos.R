@@ -2,21 +2,25 @@
 ## Ajusta dois modelos e compara:
 ##   g_sem : abundancia ~ ano_c + (ano_c || cnuc)
 ##   g_com : abundancia ~ ano_c + (ano_c || cnuc) + (1 | cnuc_ano)
+## Especies com menos de lim_grupos_inclinacao grupos (00_config.R) sao
+## ajustadas sem inclinacao aleatoria por UC (so a tendencia media):
+##   g_sem : abundancia ~ ano_c + (1 | cnuc)
+##   g_com : abundancia ~ ano_c + (1 | cnuc) + (1 | cnuc_ano)
 ## Deteccao (ambos): half-normal, log(sigma) ~ ano_c
 ##   Sem efeito de UC na deteccao: com poucas deteccoes por UC, deteccao e
 ##   abundancia de cada UC nao sao separaveis (divergencias concentradas em
 ##   sigma_det alto no teste com Tayassu pecari).
 ##
 ## Escolha do modelo principal (por especie):
-##   g_sem, se phi ajustado do g_sem <= limiar_phi (1.5); senao g_com.
+##   g_sem, se phi ajustado do g_sem <= limiar_phi (00_config.R); senao g_com.
 ##   phi ajustado = Pearson / (n UC-anos - p_eff), p_eff = p_loo do g_sem.
 ##   O outro modelo fica como analise de sensibilidade.
-##   A escolha e gravada em ajustes_grupos/escolha_modelos.csv (lida pelo 07).
+##   A escolha e gravada em <dir_ajustes>/escolha_modelos.csv (lida pelo 07).
 ##
 ## Uso:
 ##   especie <- "Tayassu pecari"
 ##   source("05_ajusta_grupos.R")
-## Salva em ajustes_grupos/<Especie>_g_sem.rds e _g_com.rds
+## Salva em <dir_ajustes>/<Especie>_g_sem.rds e _g_com.rds
 
 library(ubms)
 source("04_prepara_dados_uc_ano.R")
@@ -28,8 +32,8 @@ cfg <- list(chains = 6, cores = min(6, parallel::detectCores()),
 ## sorteios para os desvios dos efeitos aleatorios atingirem n_eff > 400.
 iter_modelo <- c(g_sem = 4000, g_com = 6000)
 
-dir.create("ajustes_grupos", showWarnings = FALSE)
-arq <- function(m) file.path("ajustes_grupos",
+dir.create(dir_ajustes, showWarnings = FALSE)
+arq <- function(m) file.path(dir_ajustes,
                              paste0(gsub(" ", "_", especie), "_", m, ".rds"))
 
 ajusta <- function(formula, iter) {
@@ -42,9 +46,15 @@ ajusta <- function(formula, iter) {
 }
 
 ## Formula dupla do ubms: ~ deteccao ~ abundancia
-formulas <- list(
+inclinacao_uc <- sum(y_ua) >= lim_grupos_inclinacao
+formulas <- if (inclinacao_uc) list(
     g_sem = ~ ano_c ~ ano_c + (ano_c || cnuc),
-    g_com = ~ ano_c ~ ano_c + (ano_c || cnuc) + (1 | cnuc_ano))
+    g_com = ~ ano_c ~ ano_c + (ano_c || cnuc) + (1 | cnuc_ano)
+) else list(
+    g_sem = ~ ano_c ~ ano_c + (1 | cnuc),
+    g_com = ~ ano_c ~ ano_c + (1 | cnuc) + (1 | cnuc_ano))
+message(sprintf("%s: %d grupos -> %s inclinacao aleatoria por UC", especie,
+                sum(y_ua), if (inclinacao_uc) "com" else "sem"))
 
 ## Ajusta (ou carrega, se ja existir um ajuste com o mesmo numero de iteracoes)
 for (m in names(formulas)) {
@@ -135,7 +145,6 @@ print(as.data.frame(comparacao), digits = 3)
 ################################################################################
 ## Escolha do modelo principal
 ################################################################################
-limiar_phi <- 1.5
 phi_aj_sem <- comparacao$phi_aj[comparacao$modelo == "g_sem"]
 modelo_principal <- if (phi_aj_sem > limiar_phi) "g_com" else "g_sem"
 message(sprintf("%s: phi ajustado do g_sem = %.2f -> modelo principal: %s",
@@ -149,10 +158,12 @@ grava <- function(tab, arquivo) {
     }
     write_csv(arrange(tab, especie), arquivo)
 }
-grava(comparacao, "ajustes_grupos/comparacao_modelos.csv")
+grava(mutate(comparacao, inclinacao_uc = inclinacao_uc),
+      file.path(dir_ajustes, "comparacao_modelos.csv"))
 grava(tibble(especie = especie, phi_aj_g_sem = phi_aj_sem,
-             limiar_phi = limiar_phi, modelo_principal = modelo_principal),
-      "ajustes_grupos/escolha_modelos.csv")
+             limiar_phi = limiar_phi, modelo_principal = modelo_principal,
+             inclinacao_uc = inclinacao_uc),
+      file.path(dir_ajustes, "escolha_modelos.csv"))
 
 ## 4. Ajuste (qui-quadrado posterior preditivo do ubms). Usa a mesma simulacao
 ##    condicional aos dados; e pouco sensivel a sobredispersao.

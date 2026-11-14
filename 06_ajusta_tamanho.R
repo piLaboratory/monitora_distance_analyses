@@ -2,11 +2,14 @@
 ##   s = n_animais - 1 ~ binomial negativa
 ##   s | cens(censura) ~ ano_c + (ano_c || cnuc)
 ## Tamanho medio do grupo num ano: E[n] = 1 + exp(eta)
+## Sensibilidade: o mesmo modelo SEM censura, so com as contagens totais
+## (o aumento das contagens parciais ao longo do tempo pode inflar a tendencia
+## do tamanho no modelo censurado).
 ##
 ## Uso:
 ##   especie <- "Tayassu pecari"
 ##   source("06_ajusta_tamanho.R")
-## Salva em ajustes_grupos/<Especie>_tam.rds (e _tam_dist.rds)
+## Salva em <dir_ajustes>/<Especie>_tam.rds, _tam_dist.rds e _tam_dist_sc.rds
 
 library(brms)
 if (!exists("dados_tam") || !identical(attr(dados_tam, "especie"), especie)) {
@@ -14,8 +17,8 @@ if (!exists("dados_tam") || !identical(attr(dados_tam, "especie"), especie)) {
     attr(dados_tam, "especie") <- especie
 }
 
-dir.create("ajustes_grupos", showWarnings = FALSE)
-arq_tam <- function(m) file.path("ajustes_grupos",
+dir.create(dir_ajustes, showWarnings = FALSE)
+arq_tam <- function(m) file.path(dir_ajustes,
                                  paste0(gsub(" ", "_", especie), "_", m))
 
 ## Priors fracamente informativos (escala log do tamanho medio - 1)
@@ -60,3 +63,17 @@ print(fixef(m_tam_dist)["dist_c", ])
 ##    e importante para a tendencia do tamanho)
 print(dados_tam |> summarise(n = n(), frac_parcial = mean(parcial), .by = ano) |>
       arrange(ano))
+
+## 4. Sensibilidade: tamanho sem censura (so contagens totais), com distancia.
+##    Usado no 07 para a tendencia de individuos "sem censura".
+m_tam_dist_sc <- brm(s_obs ~ ano_c + dist_c + (ano_c || cnuc),
+                     data = filter(dados_tam, !parcial),
+                     family = negbinomial(), prior = priors,
+                     chains = 6, iter = 2000, warmup = 1000,
+                     cores = min(6, parallel::detectCores()),
+                     control = list(adapt_delta = 0.95),
+                     backend = "rstan", seed = 1, init = 0,
+                     file = arq_tam("tam_dist_sc"))
+dr_sc <- as_draws_df(m_tam_dist_sc)
+print(c(ano_c_censurado = mean(as_draws_df(m_tam_dist)$b_ano_c),
+        ano_c_sem_censura = mean(dr_sc$b_ano_c)))

@@ -6,9 +6,7 @@
 args <- commandArgs(trailingOnly = TRUE)
 stopifnot(length(args) >= 1)
 especie <- args[1]
-## Criterio de UC classificavel (pode ser passado como 2o e 3o argumentos)
-crit_min_grupos <- if (length(args) >= 2) as.numeric(args[2]) else 15
-crit_min_anos   <- if (length(args) >= 3) as.numeric(args[3]) else 3
+source("00_config.R")   ## pastas e criterios
 
 t0 <- Sys.time()
 message("=== ", especie, " | inicio ", format(t0), " ===")
@@ -26,8 +24,8 @@ forcar_modelo <- setdiff(c("g_sem", "g_com"), principal)
 source("07_combina_tendencias.R")
 
 ## Marca a especie como concluida
-dir.create("resultados", showWarnings = FALSE)
+dir.create(dir_resultados, showWarnings = FALSE)
 writeLines(c(especie, principal, format(Sys.time())),
-           file.path("resultados", paste0(gsub(" ", "_", especie), "_concluido.txt")))
+           file.path(dir_resultados, paste0(gsub(" ", "_", especie), "_concluido.txt")))
 message(sprintf("=== %s concluida em %.1f min ===", especie,
                 as.numeric(difftime(Sys.time(), t0, units = "mins"))))
