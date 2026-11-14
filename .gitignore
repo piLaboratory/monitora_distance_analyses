@@ -2,15 +2,8 @@
 .RData
 .RHistory
 .Rhistory
-vignettes/*.pdf
-vignettes/*.aux
-vignettes/*.log
-vignettes/*.tex
-vignettes/*.bbl
-vignettes/*.blg
-vignettes/*.dvi
-testes/
 src/*.o
 src/*.so
 .*.swp
 *#*
+ajustes_grupos/
