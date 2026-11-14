@@ -1,0 +1,66 @@
+From 6470139222571c3fe812c004ea6e09bfe15bb0ae Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 14 Nov 2026 00:13:46 -0300
+Subject: [PATCH] =?UTF-8?q?g=5Fcom=20com=206000=20itera=C3=A7=C3=B5es;=20r?=
+ =?UTF-8?q?eajusta=20se=20o=20salvo=20tiver=20outro=20n=C3=BAmero?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EjfSAJwu1oVmAuYuHgwzur
+---
+ 05_ajusta_grupos.R | 19 +++++++++++--------
+ 1 file changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/05_ajusta_grupos.R b/05_ajusta_grupos.R
+index 1d64af7..af67d4e 100644
+--- a/05_ajusta_grupos.R
++++ b/05_ajusta_grupos.R
+@@ -16,18 +16,20 @@ library(ubms)
+ source("04_prepara_dados_uc_ano.R")
+ 
+ ## Configuracoes do amostrador
+-cfg <- list(chains = 6, iter = 4000, warmup = 2000,
+-            cores = min(6, parallel::detectCores()),
++cfg <- list(chains = 6, cores = min(6, parallel::detectCores()),
+             adapt_delta = 0.99, max_treedepth = 12)
++## Iteracoes por modelo (aquecimento = metade). O g_com precisa de mais
++## sorteios para os desvios dos efeitos aleatorios atingirem n_eff > 400.
++iter_modelo <- c(g_sem = 4000, g_com = 6000)
+ 
+ dir.create("ajustes_grupos", showWarnings = FALSE)
+ arq <- function(m) file.path("ajustes_grupos",
+                              paste0(gsub(" ", "_", especie), "_", m, ".rds"))
+ 
+-ajusta <- function(formula) {
++ajusta <- function(formula, iter) {
+     stan_distsamp(formula, data = umf_ua,
+                   keyfun = "halfnorm", output = "density", unitsOut = "ha",
+-                  chains = cfg$chains, iter = cfg$iter, warmup = cfg$warmup,
++                  chains = cfg$chains, iter = iter, warmup = iter / 2,
+                   cores = cfg$cores, refresh = 0,
+                   control = list(adapt_delta = cfg$adapt_delta,
+                                  max_treedepth = cfg$max_treedepth))
+@@ -38,13 +40,14 @@ formulas <- list(
+     g_sem = ~ ano_c ~ ano_c + (ano_c || cnuc),
+     g_com = ~ ano_c ~ ano_c + (ano_c || cnuc) + (1 | cnuc_ano))
+ 
+-## Ajusta (ou carrega, se ja existir)
++## Ajusta (ou carrega, se ja existir um ajuste com o mesmo numero de iteracoes)
+ for (m in names(formulas)) {
+-    if (file.exists(arq(m))) {
+-        assign(m, readRDS(arq(m)))
++    salvo <- if (file.exists(arq(m))) readRDS(arq(m)) else NULL
++    if (!is.null(salvo) && salvo@stanfit@sim$iter == iter_modelo[[m]]) {
++        assign(m, salvo)
+     } else {
+         t0 <- Sys.time()
+-        fit <- ajusta(formulas[[m]])
++        fit <- ajusta(formulas[[m]], iter_modelo[[m]])
+         message(sprintf("%s %s: %.1f min", especie, m,
+                         as.numeric(difftime(Sys.time(), t0, units = "mins"))))
+         saveRDS(fit, arq(m))
+-- 
+2.43.0
+
