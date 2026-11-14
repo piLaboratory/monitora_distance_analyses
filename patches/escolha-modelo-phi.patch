@@ -1,0 +1,142 @@
+From b301695f918683809c650da12dbdd1c4567004de Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 14 Nov 2026 00:28:59 -0300
+Subject: [PATCH] =?UTF-8?q?Escolha=20do=20modelo=20de=20grupos=20por=20esp?=
+ =?UTF-8?q?=C3=A9cie=20pelo=20phi=20ajustado=20(limiar=201,5)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- phi ajustado = Pearson / (n UC-anos - p_loo)
+- g_sem é o principal se phi ajustado <= 1,5; senão g_com
+- comparação e escolha gravadas em ajustes_grupos/*.csv
+- 07 usa a escolha gravada; forcar_modelo permite a análise de sensibilidade
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EjfSAJwu1oVmAuYuHgwzur
+---
+ 05_ajusta_grupos.R      | 51 +++++++++++++++++++++++++++++++++++------
+ 07_combina_tendencias.R | 13 +++++++++--
+ 2 files changed, 55 insertions(+), 9 deletions(-)
+
+diff --git a/05_ajusta_grupos.R b/05_ajusta_grupos.R
+index af67d4e..6751d1b 100644
+--- a/05_ajusta_grupos.R
++++ b/05_ajusta_grupos.R
+@@ -7,6 +7,12 @@
+ ##   abundancia de cada UC nao sao separaveis (divergencias concentradas em
+ ##   sigma_det alto no teste com Tayassu pecari).
+ ##
++## Escolha do modelo principal (por especie):
++##   g_sem, se phi ajustado do g_sem <= limiar_phi (1.5); senao g_com.
++##   phi ajustado = Pearson / (n UC-anos - p_eff), p_eff = p_loo do g_sem.
++##   O outro modelo fica como analise de sensibilidade.
++##   A escolha e gravada em ajustes_grupos/escolha_modelos.csv (lida pelo 07).
++##
+ ## Uso:
+ ##   especie <- "Tayassu pecari"
+ ##   source("05_ajusta_grupos.R")
+@@ -94,7 +100,7 @@ tendencia <- function(fit) {
+ ##    phi ~ 1: variancia compativel com Poisson. No g_com o esperado inclui o
+ ##    efeito de cada UC-ano, entao phi tende a ficar <= 1 por construcao; o phi
+ ##    informativo para sobredispersao e o do g_sem.
+-dispersao <- function(fit, draws = 1000) {
++dispersao <- function(fit, draws = 1000, p_eff = 1) {
+     samp <- ubms:::get_samples(fit, draws)
+     lam  <- t(ubms:::sim_lp(fit, "state", transform = TRUE, newdata = NULL,
+                             re.form = NULL, samples = samp))           ## UC-ano x sorteio
+@@ -104,18 +110,49 @@ dispersao <- function(fit, draws = 1000) {
+     pdet <- apply(p[, 1:J, , drop = FALSE], c(1, 3), sum)              ## UC-ano x sorteio
+     esp  <- rowMeans(lam * pdet)
+     obs  <- rowSums(y_ua)
+-    sum((obs - esp)^2 / esp) / (length(obs) - 1)
++    pearson <- sum((obs - esp)^2 / esp)
++    c(phi = pearson / (length(obs) - 1),
++      phi_aj = pearson / (length(obs) - p_eff))
+ }
+ 
++## Numero efetivo de parametros (p_loo) para ajustar o phi
++loo_sem <- loo(g_sem); loo_com <- loo(g_com)
++p_eff <- c(g_sem = loo_sem$estimates["p_loo", "Estimate"],
++           g_com = loo_com$estimates["p_loo", "Estimate"])
++
+ comparacao <-
+     bind_rows(
+-        bind_cols(modelo = "sem cnuc_ano", convergencia(g_sem), tendencia(g_sem),
+-                  phi = dispersao(g_sem)),
+-        bind_cols(modelo = "com cnuc_ano", convergencia(g_com), tendencia(g_com),
+-                  phi = dispersao(g_com))) |>
++        bind_cols(modelo = "g_sem", convergencia(g_sem), tendencia(g_sem),
++                  p_eff = p_eff[["g_sem"]],
++                  as_tibble_row(dispersao(g_sem, p_eff = p_eff[["g_sem"]]))),
++        bind_cols(modelo = "g_com", convergencia(g_com), tendencia(g_com),
++                  p_eff = p_eff[["g_com"]],
++                  as_tibble_row(dispersao(g_com, p_eff = p_eff[["g_com"]])))) |>
+     mutate(especie = especie, .before = 1)
+ print(as.data.frame(comparacao), digits = 3)
+ 
++################################################################################
++## Escolha do modelo principal
++################################################################################
++limiar_phi <- 1.5
++phi_aj_sem <- comparacao$phi_aj[comparacao$modelo == "g_sem"]
++modelo_principal <- if (phi_aj_sem > limiar_phi) "g_com" else "g_sem"
++message(sprintf("%s: phi ajustado do g_sem = %.2f -> modelo principal: %s",
++                especie, phi_aj_sem, modelo_principal))
++
++## Grava comparacao e escolha (substitui a linha da especie, se ja existir)
++grava <- function(tab, arquivo) {
++    if (file.exists(arquivo)) {
++        ant <- read_csv(arquivo, show_col_types = FALSE)
++        tab <- bind_rows(filter(ant, especie != .env$especie), tab)
++    }
++    write_csv(arrange(tab, especie), arquivo)
++}
++grava(comparacao, "ajustes_grupos/comparacao_modelos.csv")
++grava(tibble(especie = especie, phi_aj_g_sem = phi_aj_sem,
++             limiar_phi = limiar_phi, modelo_principal = modelo_principal),
++      "ajustes_grupos/escolha_modelos.csv")
++
+ ## 4. Ajuste (qui-quadrado posterior preditivo do ubms). Usa a mesma simulacao
+ ##    condicional aos dados; e pouco sensivel a sobredispersao.
+ gof_sem <- gof(g_sem, draws = 500); gof_com <- gof(g_com, draws = 500)
+@@ -124,7 +161,7 @@ print(gof_sem); print(gof_com)
+ ## 5. LOO. Atencao: com efeito por observacao (cnuc_ano) o PSIS-LOO costuma
+ ##    ter muitos k de Pareto altos; nesse caso a comparacao nao e confiavel e
+ ##    vale mais olhar convergencia, phi e o IC da tendencia.
+-ms <- modSel(fitList(sem_cnuc_ano = g_sem, com_cnuc_ano = g_com))
++ms <- loo::loo_compare(list(g_sem = loo_sem, g_com = loo_com))
+ print(ms)
+ 
+ ## Desvio do efeito UC-ano (quanto maior, mais variacao extra-Poisson entre anos)
+diff --git a/07_combina_tendencias.R b/07_combina_tendencias.R
+index c7d3c38..43d68b5 100644
+--- a/07_combina_tendencias.R
++++ b/07_combina_tendencias.R
+@@ -12,12 +12,21 @@
+ ##
+ ## Uso:
+ ##   especie <- "Tayassu pecari"
+-##   modelo_grupos <- "g_com"     ## ou "g_sem"
++##   forcar_modelo <- "g_com"     ## opcional (sensibilidade); se ausente ou NULL,
++##                                ## usa a escolha gravada pelo 05
+ ##   source("07_combina_tendencias.R")
+ ## Produz: tend_media (UC tipica) e tend_uc (por UC)
+ 
+ library(ubms); library(brms); library(tidyverse)
+-if (!exists("modelo_grupos")) modelo_grupos <- "g_com"
++## Modelo de grupos: o forcado pelo usuario ou o escolhido no 05 (phi)
++if (exists("forcar_modelo") && !is.null(forcar_modelo)) {
++    modelo_grupos <- forcar_modelo
++} else {
++    escolha <- read_csv("ajustes_grupos/escolha_modelos.csv", show_col_types = FALSE)
++    modelo_grupos <- escolha$modelo_principal[escolha$especie == especie]
++    stopifnot(length(modelo_grupos) == 1)
++}
++message(sprintf("07 (%s): modelo de grupos = %s", especie, modelo_grupos))
+ source("04_prepara_dados_uc_ano.R")
+ 
+ pref <- file.path("ajustes_grupos", gsub(" ", "_", especie))
+-- 
+2.43.0
+
