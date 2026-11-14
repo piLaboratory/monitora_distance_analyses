@@ -12,12 +12,12 @@
 ##
 ## Uso:
 ##   especie <- "Tayassu pecari"
-##   modelo_grupos <- "m_com"     ## ou "m_sem"
+##   modelo_grupos <- "g_com"     ## ou "g_sem"
 ##   source("07_combina_tendencias.R")
 ## Produz: tend_media (UC tipica) e tend_uc (por UC)
 
 library(ubms); library(brms); library(tidyverse)
-if (!exists("modelo_grupos")) modelo_grupos <- "m_com"
+if (!exists("modelo_grupos")) modelo_grupos <- "g_com"
 source("04_prepara_dados_uc_ano.R")
 
 pref <- file.path("ajustes_grupos", gsub(" ", "_", especie))
