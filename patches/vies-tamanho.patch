@@ -1,0 +1,103 @@
+From 3c033f745b19d34b18502467d2d8a536a9d6622b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 14 Nov 2026 00:41:09 -0300
+Subject: [PATCH] =?UTF-8?q?Corrige=20vi=C3=A9s=20de=20tamanho:=20tamanho?=
+ =?UTF-8?q?=20m=C3=A9dio=20=C3=A0=20dist=C3=A2ncia=20zero?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 07 usa o modelo de tamanho com distância e avalia a distância 0
+- 06: init = 0 nos dois brm (evita valores iniciais impossíveis)
+- namespaces explícitos (ubms::loo, brms::posterior_linpred), pois brms
+  e ubms exportam funções com o mesmo nome
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EjfSAJwu1oVmAuYuHgwzur
+---
+ 05_ajusta_grupos.R      |  3 ++-
+ 06_ajusta_tamanho.R     |  5 ++++-
+ 07_combina_tendencias.R | 22 +++++++++++++---------
+ 3 files changed, 19 insertions(+), 11 deletions(-)
+
+diff --git a/05_ajusta_grupos.R b/05_ajusta_grupos.R
+index 6751d1b..72b68c0 100644
+--- a/05_ajusta_grupos.R
++++ b/05_ajusta_grupos.R
+@@ -116,7 +116,8 @@ dispersao <- function(fit, draws = 1000, p_eff = 1) {
+ }
+ 
+ ## Numero efetivo de parametros (p_loo) para ajustar o phi
+-loo_sem <- loo(g_sem); loo_com <- loo(g_com)
++## ubms::loo explicito: se o brms estiver carregado, loo() seria o do brms
++loo_sem <- ubms::loo(g_sem); loo_com <- ubms::loo(g_com)
+ p_eff <- c(g_sem = loo_sem$estimates["p_loo", "Estimate"],
+            g_com = loo_com$estimates["p_loo", "Estimate"])
+ 
+diff --git a/06_ajusta_tamanho.R b/06_ajusta_tamanho.R
+index 32af27a..af86ab8 100644
+--- a/06_ajusta_tamanho.R
++++ b/06_ajusta_tamanho.R
+@@ -30,6 +30,7 @@ m_tam <- brm(s_obs | cens(censura) ~ ano_c + (ano_c || cnuc),
+              cores = min(6, parallel::detectCores()),
+              control = list(adapt_delta = 0.95),
+              backend = "rstan", seed = 1,
++             init = 0,                ## evita valores iniciais impossiveis
+              file = arq_tam("tam"))   ## carrega o ajuste se o arquivo ja existir
+ 
+ print(summary(m_tam))
+@@ -49,8 +50,10 @@ print(c(tam_medio_ini = mean(n_ini), tam_medio_fim = mean(n_fim),
+ ## 2. Tamanho registrado depende da distancia? (grupos grandes detectados
+ ##    mais longe indicam vies de tamanho na deteccao). Coeficiente de dist_c
+ ##    claramente positivo = sinal de vies.
++##    Este modelo e usado no 07 para corrigir o vies: o tamanho medio e
++##    calculado a distancia zero, onde a deteccao independe do tamanho.
+ m_tam_dist <- update(m_tam, formula. = ~ . + dist_c, newdata = dados_tam,
+-                     file = arq_tam("tam_dist"))
++                     init = 0, file = arq_tam("tam_dist"))
+ print(fixef(m_tam_dist)["dist_c", ])
+ 
+ ## 3. Fracao de contagens parciais ao longo dos anos (se muda, a censura
+diff --git a/07_combina_tendencias.R b/07_combina_tendencias.R
+index 43d68b5..a6948a4 100644
+--- a/07_combina_tendencias.R
++++ b/07_combina_tendencias.R
+@@ -31,7 +31,10 @@ source("04_prepara_dados_uc_ano.R")
+ 
+ pref <- file.path("ajustes_grupos", gsub(" ", "_", especie))
+ m_grp <- readRDS(paste0(pref, "_", modelo_grupos, ".rds"))
+-m_tam <- readRDS(paste0(pref, "_tam.rds"))
++## Modelo de tamanho com distancia (06): o tamanho medio e avaliado a
++## distancia zero, corrigindo o vies de deteccao de grupos grandes.
++m_tam <- readRDS(paste0(pref, "_tam_dist.rds"))
++dist_c0 <- (0 - mean(dados_tam$dist.m)) / sd(dados_tam$dist.m)  ## mesma padronizacao do 04
+ R_anos <- ano_max - ano_min
+ 
+ ################################################################################
+@@ -69,14 +72,15 @@ ucs   <- colnames(g0_uc)
+ ################################################################################
+ ## Sorteios do modelo de tamanho
+ ################################################################################
+-## Preditor linear em ano_min e ano_max para a UC tipica (re_formula = NA) e
+-## para cada UC do modelo de grupos. UCs sem dados de tamanho recebem um
+-## efeito aleatorio sorteado da distribuicao estimada (sample_new_levels).
+-nd <- expand_grid(cnuc = ucs, ano_c = c(0, 1))
+-eta_uc  <- posterior_linpred(m_tam, newdata = nd, allow_new_levels = TRUE,
+-                             sample_new_levels = "gaussian")
+-eta_med <- posterior_linpred(m_tam, newdata = tibble(ano_c = c(0, 1)),
+-                             re_formula = NA)
++## Preditor linear em ano_min e ano_max, a distancia zero, para a UC tipica
++## (re_formula = NA) e para cada UC do modelo de grupos. UCs sem dados de
++## tamanho recebem um efeito aleatorio sorteado da distribuicao estimada.
++## brms:: explicito porque o ubms tem uma funcao com o mesmo nome.
++nd <- expand_grid(cnuc = ucs, ano_c = c(0, 1)) |> mutate(dist_c = dist_c0)
++eta_uc  <- brms::posterior_linpred(m_tam, newdata = nd, allow_new_levels = TRUE,
++                                   sample_new_levels = "gaussian")
++eta_med <- brms::posterior_linpred(m_tam, newdata = tibble(ano_c = c(0, 1), dist_c = dist_c0),
++                                   re_formula = NA)
+ 
+ ## Pareia os sorteios ao acaso, com o mesmo numero nos dois modelos
+ set.seed(1)
+-- 
+2.43.0
+
