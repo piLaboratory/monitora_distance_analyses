@@ -16,18 +16,20 @@ library(ubms)
 source("04_prepara_dados_uc_ano.R")
 
 ## Configuracoes do amostrador
-cfg <- list(chains = 6, iter = 4000, warmup = 2000,
-            cores = min(6, parallel::detectCores()),
+cfg <- list(chains = 6, cores = min(6, parallel::detectCores()),
             adapt_delta = 0.99, max_treedepth = 12)
+## Iteracoes por modelo (aquecimento = metade). O g_com precisa de mais
+## sorteios para os desvios dos efeitos aleatorios atingirem n_eff > 400.
+iter_modelo <- c(g_sem = 4000, g_com = 6000)
 
 dir.create("ajustes_grupos", showWarnings = FALSE)
 arq <- function(m) file.path("ajustes_grupos",
                              paste0(gsub(" ", "_", especie), "_", m, ".rds"))
 
-ajusta <- function(formula) {
+ajusta <- function(formula, iter) {
     stan_distsamp(formula, data = umf_ua,
                   keyfun = "halfnorm", output = "density", unitsOut = "ha",
-                  chains = cfg$chains, iter = cfg$iter, warmup = cfg$warmup,
+                  chains = cfg$chains, iter = iter, warmup = iter / 2,
                   cores = cfg$cores, refresh = 0,
                   control = list(adapt_delta = cfg$adapt_delta,
                                  max_treedepth = cfg$max_treedepth))
@@ -38,13 +40,14 @@ formulas <- list(
     g_sem = ~ ano_c ~ ano_c + (ano_c || cnuc),
     g_com = ~ ano_c ~ ano_c + (ano_c || cnuc) + (1 | cnuc_ano))
 
-## Ajusta (ou carrega, se ja existir)
+## Ajusta (ou carrega, se ja existir um ajuste com o mesmo numero de iteracoes)
 for (m in names(formulas)) {
-    if (file.exists(arq(m))) {
-        assign(m, readRDS(arq(m)))
+    salvo <- if (file.exists(arq(m))) readRDS(arq(m)) else NULL
+    if (!is.null(salvo) && salvo@stanfit@sim$iter == iter_modelo[[m]]) {
+        assign(m, salvo)
     } else {
         t0 <- Sys.time()
-        fit <- ajusta(formulas[[m]])
+        fit <- ajusta(formulas[[m]], iter_modelo[[m]])
         message(sprintf("%s %s: %.1f min", especie, m,
                         as.numeric(difftime(Sys.time(), t0, units = "mins"))))
         saveRDS(fit, arq(m))
