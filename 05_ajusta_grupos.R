@@ -82,16 +82,25 @@ tendencia <- function(fit) {
            ic_sup = quantile(p, 0.975), P_declinio = mean(b < 0))
 }
 
-## 3. Dispersao de Pearson nos totais por UC-ano (esperado pela media
-##    posterior preditiva). phi ~ 1 indica que a variancia esta bem descrita.
-##    No g_com o esperado ja inclui o efeito de cada UC-ano, entao phi tende a
-##    ficar <= 1 por construcao; o phi informativo e o do g_sem.
-##    posterior_predict devolve colunas na ordem UC-ano 1 (faixas 1..J),
-##    UC-ano 2 (faixas 1..J), ... (conferido no codigo do ubms).
-dispersao <- function(fit) {
-    yrep <- posterior_predict(fit, "y", draws = 1000)  ## draws x (UC-ano*faixa)
-    e <- matrix(colMeans(yrep), nrow = nrow(y_ua), byrow = TRUE)
-    obs <- rowSums(y_ua); esp <- rowSums(e)
+## 3. Dispersao de Pearson nos totais por UC-ano, com o valor esperado
+##    NAO condicionado aos dados: E[y_i] = lambda_i * area_i * p_i, onde p_i e a
+##    probabilidade de detectar um grupo dentro da faixa truncada, calculado em
+##    cada sorteio e depois promediado.
+##    (posterior_predict/gof do ubms sorteiam a abundancia latente condicionada
+##    as contagens observadas, o que deixa o phi artificialmente baixo.)
+##    phi ~ 1: variancia compativel com Poisson. No g_com o esperado inclui o
+##    efeito de cada UC-ano, entao phi tende a ficar <= 1 por construcao; o phi
+##    informativo para sobredispersao e o do g_sem.
+dispersao <- function(fit, draws = 1000) {
+    samp <- ubms:::get_samples(fit, draws)
+    lam  <- t(ubms:::sim_lp(fit, "state", transform = TRUE, newdata = NULL,
+                            re.form = NULL, samples = samp))           ## UC-ano x sorteio
+    lam  <- lam * ubms:::get_area_adjust(fit@response)                 ## densidade -> numero na faixa
+    p    <- ubms:::get_p_for_multinom(fit, samp)                       ## UC-ano x (J+1) x sorteio
+    J    <- dim(p)[2] - 1
+    pdet <- apply(p[, 1:J, , drop = FALSE], c(1, 3), sum)              ## UC-ano x sorteio
+    esp  <- rowMeans(lam * pdet)
+    obs  <- rowSums(y_ua)
     sum((obs - esp)^2 / esp) / (length(obs) - 1)
 }
 
@@ -104,7 +113,8 @@ comparacao <-
     mutate(especie = especie, .before = 1)
 print(as.data.frame(comparacao), digits = 3)
 
-## 4. Ajuste (qui-quadrado posterior preditivo do ubms)
+## 4. Ajuste (qui-quadrado posterior preditivo do ubms). Usa a mesma simulacao
+##    condicional aos dados; e pouco sensivel a sobredispersao.
 gof_sem <- gof(g_sem, draws = 500); gof_com <- gof(g_com, draws = 500)
 print(gof_sem); print(gof_com)
 
