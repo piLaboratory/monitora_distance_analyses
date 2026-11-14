@@ -31,7 +31,10 @@ source("04_prepara_dados_uc_ano.R")
 
 pref <- file.path("ajustes_grupos", gsub(" ", "_", especie))
 m_grp <- readRDS(paste0(pref, "_", modelo_grupos, ".rds"))
-m_tam <- readRDS(paste0(pref, "_tam.rds"))
+## Modelo de tamanho com distancia (06): o tamanho medio e avaliado a
+## distancia zero, corrigindo o vies de deteccao de grupos grandes.
+m_tam <- readRDS(paste0(pref, "_tam_dist.rds"))
+dist_c0 <- (0 - mean(dados_tam$dist.m)) / sd(dados_tam$dist.m)  ## mesma padronizacao do 04
 R_anos <- ano_max - ano_min
 
 ################################################################################
@@ -69,14 +72,15 @@ ucs   <- colnames(g0_uc)
 ################################################################################
 ## Sorteios do modelo de tamanho
 ################################################################################
-## Preditor linear em ano_min e ano_max para a UC tipica (re_formula = NA) e
-## para cada UC do modelo de grupos. UCs sem dados de tamanho recebem um
-## efeito aleatorio sorteado da distribuicao estimada (sample_new_levels).
-nd <- expand_grid(cnuc = ucs, ano_c = c(0, 1))
-eta_uc  <- posterior_linpred(m_tam, newdata = nd, allow_new_levels = TRUE,
-                             sample_new_levels = "gaussian")
-eta_med <- posterior_linpred(m_tam, newdata = tibble(ano_c = c(0, 1)),
-                             re_formula = NA)
+## Preditor linear em ano_min e ano_max, a distancia zero, para a UC tipica
+## (re_formula = NA) e para cada UC do modelo de grupos. UCs sem dados de
+## tamanho recebem um efeito aleatorio sorteado da distribuicao estimada.
+## brms:: explicito porque o ubms tem uma funcao com o mesmo nome.
+nd <- expand_grid(cnuc = ucs, ano_c = c(0, 1)) |> mutate(dist_c = dist_c0)
+eta_uc  <- brms::posterior_linpred(m_tam, newdata = nd, allow_new_levels = TRUE,
+                                   sample_new_levels = "gaussian")
+eta_med <- brms::posterior_linpred(m_tam, newdata = tibble(ano_c = c(0, 1), dist_c = dist_c0),
+                                   re_formula = NA)
 
 ## Pareia os sorteios ao acaso, com o mesmo numero nos dois modelos
 set.seed(1)

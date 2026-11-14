@@ -30,6 +30,7 @@ m_tam <- brm(s_obs | cens(censura) ~ ano_c + (ano_c || cnuc),
              cores = min(6, parallel::detectCores()),
              control = list(adapt_delta = 0.95),
              backend = "rstan", seed = 1,
+             init = 0,                ## evita valores iniciais impossiveis
              file = arq_tam("tam"))   ## carrega o ajuste se o arquivo ja existir
 
 print(summary(m_tam))
@@ -49,8 +50,10 @@ print(c(tam_medio_ini = mean(n_ini), tam_medio_fim = mean(n_fim),
 ## 2. Tamanho registrado depende da distancia? (grupos grandes detectados
 ##    mais longe indicam vies de tamanho na deteccao). Coeficiente de dist_c
 ##    claramente positivo = sinal de vies.
+##    Este modelo e usado no 07 para corrigir o vies: o tamanho medio e
+##    calculado a distancia zero, onde a deteccao independe do tamanho.
 m_tam_dist <- update(m_tam, formula. = ~ . + dist_c, newdata = dados_tam,
-                     file = arq_tam("tam_dist"))
+                     init = 0, file = arq_tam("tam_dist"))
 print(fixef(m_tam_dist)["dist_c", ])
 
 ## 3. Fracao de contagens parciais ao longo dos anos (se muda, a censura

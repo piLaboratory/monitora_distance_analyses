@@ -116,7 +116,8 @@ dispersao <- function(fit, draws = 1000, p_eff = 1) {
 }
 
 ## Numero efetivo de parametros (p_loo) para ajustar o phi
-loo_sem <- loo(g_sem); loo_com <- loo(g_com)
+## ubms::loo explicito: se o brms estiver carregado, loo() seria o do brms
+loo_sem <- ubms::loo(g_sem); loo_com <- ubms::loo(g_com)
 p_eff <- c(g_sem = loo_sem$estimates["p_loo", "Estimate"],
            g_com = loo_com$estimates["p_loo", "Estimate"])
 
