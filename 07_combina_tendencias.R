@@ -12,12 +12,21 @@
 ##
 ## Uso:
 ##   especie <- "Tayassu pecari"
-##   modelo_grupos <- "g_com"     ## ou "g_sem"
+##   forcar_modelo <- "g_com"     ## opcional (sensibilidade); se ausente ou NULL,
+##                                ## usa a escolha gravada pelo 05
 ##   source("07_combina_tendencias.R")
 ## Produz: tend_media (UC tipica) e tend_uc (por UC)
 
 library(ubms); library(brms); library(tidyverse)
-if (!exists("modelo_grupos")) modelo_grupos <- "g_com"
+## Modelo de grupos: o forcado pelo usuario ou o escolhido no 05 (phi)
+if (exists("forcar_modelo") && !is.null(forcar_modelo)) {
+    modelo_grupos <- forcar_modelo
+} else {
+    escolha <- read_csv("ajustes_grupos/escolha_modelos.csv", show_col_types = FALSE)
+    modelo_grupos <- escolha$modelo_principal[escolha$especie == especie]
+    stopifnot(length(modelo_grupos) == 1)
+}
+message(sprintf("07 (%s): modelo de grupos = %s", especie, modelo_grupos))
 source("04_prepara_dados_uc_ano.R")
 
 pref <- file.path("ajustes_grupos", gsub(" ", "_", especie))
