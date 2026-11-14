@@ -5,18 +5,12 @@ n.cnuc.ano <-
     monitora.mam |>
     mutate(cnuc = as.character(cnuc)) |>
     summarise(n_encontros=n(), .by=c(taxon_validado, cnuc, ano))
-## Data frame com o esforco total por ano
+## Data frame com o esforco total (km) por UC e ano
+## Usa a tabela de esforço do script 01 (uma linha por transecto e data),
+## que soma todos os transectos percorridos
 esforco.cnuc.ano <-
-    monitora.mam |>
-    ## seleciona variaveis necessarias
-    select(cnuc, data, esforco, ano) |> 
-    mutate(cnuc = as.character(cnuc)) |>
-    ## remove linhas com NAs
-    na.omit() |>
-    ## Retem o valor maximo de esforço de cada UC, EA e data
-    summarise(esf.max = max(esforco), .by = c(cnuc, ano, data)) |>
-    ## Calcula numero de dias e total de distancia percorrida nos transectos
-    summarise (esforco_anual = sum(esf.max), .by=c(cnuc, ano))
+    esforco |>
+    summarise(esforco_anual = sum(tlength) / 1000, .by = c(cnuc, ano))
 ## Anexa esforco anual ao dataframe de n de encontros
 n.cnuc.ano.esf <-
     left_join(n.cnuc.ano, esforco.cnuc.ano, by=join_by(cnuc, ano))
@@ -31,7 +25,7 @@ tot.encontros <-
     ungroup() |>
     mutate(taxa_enc_10km=10*tot_encontros/tot_esforco) 
 
-## Nosso criterio : pelo menos 100 registros em pelo menos 14 UCs
+## Nosso criterio : pelo menos 150 registros em pelo menos 14 UCs
 selecionadas <-
     filter(tot.encontros, tot_encontros>=150, sites>=14)|>
     arrange(-tot_encontros, -sites, -anos) |>
