@@ -156,7 +156,11 @@ grava(tibble(especie = especie, phi_aj_g_sem = phi_aj_sem,
 
 ## 4. Ajuste (qui-quadrado posterior preditivo do ubms). Usa a mesma simulacao
 ##    condicional aos dados; e pouco sensivel a sobredispersao.
-gof_sem <- gof(g_sem, draws = 500); gof_com <- gof(g_com, draws = 500)
+##    Em ajustes mal convergidos o sorteio pode falhar (probabilidades NA);
+##    nesse caso o gof e pulado e o fluxo continua.
+gof_seguro <- function(fit) tryCatch(gof(fit, draws = 500), error = function(e) {
+    message("gof falhou: ", conditionMessage(e)); NULL })
+gof_sem <- gof_seguro(g_sem); gof_com <- gof_seguro(g_com)
 print(gof_sem); print(gof_com)
 
 ## 5. LOO. Atencao: com efeito por observacao (cnuc_ano) o PSIS-LOO costuma

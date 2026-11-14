@@ -50,6 +50,8 @@ escolha <- read_csv("ajustes_grupos/escolha_modelos.csv", show_col_types = FALSE
     select(especie, modelo_principal)
 junta <- function(sufixo) {
     arqs <- list.files("resultados", pattern = paste0("_", sufixo, "\\.csv$"), full.names = TRUE)
+    ## exclui os arquivos combinados de rodadas anteriores (todas_*.csv)
+    arqs <- arqs[!startsWith(basename(arqs), "todas_")]
     map_dfr(arqs, function(a) mutate(read_csv(a, show_col_types = FALSE),
                                      across(any_of("cnuc"), as.character))) |>
         left_join(escolha, by = "especie") |>
