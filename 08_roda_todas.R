@@ -34,7 +34,12 @@ for (i in seq_along(especies)) {
     saida <- system2(file.path(R.home("bin"), "Rscript"),
                      c("roda_especie.R", shQuote(sp)), stdout = log, stderr = log)
     status$minutos[i]  <- as.numeric(difftime(Sys.time(), t0, units = "mins"))
-    status$situacao[i] <- if (saida == 0 && concluido(sp)) "ok" else "ERRO (ver log)"
+    ## O sucesso e definido pelo arquivo _concluido.txt (gravado no fim do
+    ## roda_especie.R). O R as vezes sofre um segfault ao encerrar, na
+    ## liberacao dos objetos do Stan, depois de tudo gravado: isso nao e erro
+    ## da analise e aparece como "ok (R falhou ao encerrar)".
+    status$situacao[i] <- if (!concluido(sp)) "ERRO (ver log)" else
+        if (saida == 0) "ok" else "ok (R falhou ao encerrar)"
     message(sprintf("      %s em %.1f min", status$situacao[i], status$minutos[i]))
 }
 print(as.data.frame(status), digits = 3)

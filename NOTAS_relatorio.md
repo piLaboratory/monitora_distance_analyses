@@ -82,3 +82,47 @@ Atualizar ao longo das análises.
   valor esperado não condicional.
 - LOO com efeito por observação (cnuc_ano) tem muitos k de Pareto altos; não
   usado para escolher modelos.
+
+## Resultados da versão 2 (rodada de 14/11/2026)
+
+Tendência de **grupos** (%/ano, IC 95%), modelo principal de cada espécie.
+"Incl. UC" = modelo manteve inclinação aleatória por UC (critério de convergência).
+
+| Espécie | Modelo | Incl. UC | Grupos | P(declínio) |
+|---|---|---|---|---|
+| Tayassu pecari | g_sem | sim | −14,0 (−20,8 a −7,7) | 1,00 |
+| Guerlinguetus aestuans | g_sem | sim | −11,3 (−24,6 a −0,3) | 0,98 |
+| Eira barbara | g_sem | não | −6,2 (−11,7 a −0,6) | 0,98 |
+| Tapirus terrestris | g_sem | não | −4,9 (−11,4 a 2,0) | 0,92 |
+| Mazama americana | g_sem | sim | −3,6 (−7,8 a 0,5) | 0,96 |
+| Nasua nasua | g_sem | não | −3,5 (−8,2 a 1,2) | 0,93 |
+| Hadrosciurus spadiceus | g_com | sim | −3,5 (−9,3 a 2,5) | 0,88 |
+| Sapajus macrocephalus | g_com | sim | −3,4 (−8,1 a 1,7) | 0,91 |
+| Tamandua tetradactyla | g_sem | não | −2,1 (−7,3 a 3,1) | 0,79 |
+| Dicotyles tajacu | g_sem | sim | −2,0 (−6,0 a 2,1) | 0,84 |
+| Sapajus apella | g_com | não | −0,9 (−4,2 a 2,4) | 0,72 |
+| Sciurillus pusillus | g_com | não | 0,8 (−11,8 a 14,3) | 0,46 |
+| Ateles chamek | g_com | sim | 1,8 (−4,7 a 9,1) | 0,31 |
+| Mazama nemorivaga | g_sem | não | 2,1 (−2,0 a 6,3) | 0,17 |
+| Cebus unicolor | g_com | sim | 2,7 (−3,7 a 9,7) | 0,22 |
+
+- **Declínio com IC fora de zero**: Tayassu, Guerlinguetus, Eira (Eira com
+  convergência fraca, ver abaixo). **Declínio provável** (P > 0,9): Tapirus,
+  M. americana, Nasua, S. macrocephalus. Nenhuma espécie com aumento claro.
+- **Robustez à mudança das faixas de distância**: a tendência de grupos quase
+  não mudou entre v1 (faixas por quantis) e v2 (1ª faixa 0–2 m), ex. Tayassu
+  −14,2 → −14,0; Guerlinguetus −11,2 → −11,3.
+- **Inclinação por UC**: mantida em 8 espécies; 7 ficaram só com tendência
+  média (Eira, M. nemorivaga, Nasua, S. apella, Sciurillus, Tamandua, Tapirus).
+  S. apella, apesar de muitos dados, não convergiu com inclinação (BFMI 0,08).
+- **Indivíduos, com vs. sem censura**: coincidem nas solitárias; divergem nas
+  gregárias — Ateles +7,9 vs −0,9; Cebus +9,3 vs −0,2; S. apella +6,9 vs −4,9;
+  Dicotyles −0,3 vs −6,1; Nasua −0,3 vs −5,6; S. macrocephalus −3,5 vs −7,5;
+  Tayassu −13,0 vs −16,5. Confirma o efeito das contagens parciais (seção
+  anterior). Atenção: a queda das contagens totais (que puxa o "sem censura"
+  para baixo) também pode refletir protocolo.
+- **Convergência dos modelos principais**: boa na maioria. Pendências:
+  Eira (g_sem sem inclinação: Rhat 1,016, BFMI 0,09), Hadrosciurus (g_com:
+  Rhat 1,022) e Cebus (g_com: Rhat 1,011, 6 divergências).
+- **Técnico**: o R às vezes sofre segfault ao encerrar (liberação de objetos do
+  Stan), depois de tudo gravado; não afeta os resultados.
