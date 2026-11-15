@@ -141,3 +141,32 @@ Tendência de **grupos** (%/ano, IC 95%), modelo principal de cada espécie.
     (ideal > 0,3): ressalva menor.
 - **Técnico**: o R às vezes sofre segfault ao encerrar (liberação de objetos do
   Stan), depois de tudo gravado; não afeta os resultados.
+
+## Espécies adicionais (critério 100 registros em ≥ 10 UCs)
+
+- Critério de seleção relaxado de 150 registros em ≥ 14 UCs para 100 em ≥ 10,
+  acrescentando 9 espécies, que passam pelo mesmo protocolo das 15 originais.
+- Ocorrência nas UCs: rascunho gerado a partir dos registros (qualquer
+  distância) e revisado por Paulo; a revisão acrescentou UCs de ocorrência
+  conhecida sem registro (Saimiri em 6 UCs, Lagothrix em 5, Microsciurus e
+  Leontocebus em 1 cada). Nenhuma UC tem registro de mais de uma *Dasyprocta*.
+- Tamanhos máximos dos primatas com referência (SALVE/ICMBio; Rylands &
+  Mittermeier 2008; Gregorin et al. 2008); S. macrocephalus passou de 40 para
+  50 (igual a S. apella), sem efeito nos dados (nenhum registro entre 41 e 50).
+- Quantidade de dados após truncagem (grupos detectados / UCs com detecção /
+  UC-anos com esforço):
+
+  | Espécie | Grupos | UCs | UC-anos |
+  |---|---|---|---|
+  | Dasyprocta iacki | 5.151 | 13 | 81 |
+  | Dasyprocta leporina | 1.310 | 12 | 79 |
+  | Dasyprocta fuliginosa | 1.017 | 12 | 91 |
+  | Lagothrix lagothricha | 796 | 8 | 95 |
+  | Myoprocta pratti | 608 | 12 | 94 |
+  | Leontocebus weddelli | 547 | 13 | 101 |
+  | Alouatta macconnelli | 263 | 12 | 79 |
+  | Saimiri ustus | 223 | 13 | 141 |
+  | Microsciurus flaviventer | 91 | 11 | 85 |
+
+  Microsciurus, Saimiri e Alouatta têm poucos dados: tratar os resultados
+  como indicativos.

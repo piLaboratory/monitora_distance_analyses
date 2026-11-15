@@ -25,9 +25,9 @@ tot.encontros <-
     ungroup() |>
     mutate(taxa_enc_10km=10*tot_encontros/tot_esforco) 
 
-## Nosso criterio : pelo menos 150 registros em pelo menos 14 UCs
+## Nosso criterio : pelo menos 100 registros em pelo menos 10 UCs (antes: 150 em 14)
 selecionadas <-
-    filter(tot.encontros, tot_encontros>=150, sites>=14)|>
+    filter(tot.encontros, tot_encontros>=100, sites>=10)|>
     arrange(-tot_encontros, -sites, -anos) |>
     as.data.frame() |>
     filter(taxon_validado!="Dasyprocta sp.") ## remove Dasyprocta sem identificacao especifica
