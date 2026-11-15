@@ -121,8 +121,19 @@ Tendência de **grupos** (%/ano, IC 95%), modelo principal de cada espécie.
   Tayassu −13,0 vs −16,5. Confirma o efeito das contagens parciais (seção
   anterior). Atenção: a queda das contagens totais (que puxa o "sem censura"
   para baixo) também pode refletir protocolo.
-- **Convergência dos modelos principais**: boa na maioria. Pendências:
-  Eira (g_sem sem inclinação: Rhat 1,016, BFMI 0,09), Hadrosciurus (g_com:
-  Rhat 1,022) e Cebus (g_com: Rhat 1,011, 6 divergências).
+- **Convergência dos modelos principais**: todos com Rhat ≤ 1,01 e n_eff > 400
+  após o reajuste de 3 espécies com mais iterações (`iter_especie` em
+  00_config.R; a decisão sobre a inclinação por UC continuou com as iterações
+  padrão):
+  - Eira (g_sem, 10.000 iter): Rhat 1,016 → 1,0005; n_eff 409 → 3.959;
+    BFMI 0,09 → 0,40. Tendência inalterada: −6,2 (−11,8 a −0,5).
+  - Hadrosciurus (g_com, 12.000): Rhat 1,022 → 1,003; tendência −3,5 → −3,4.
+  - Cebus (g_com, 12.000): Rhat 1,011 → 1,005; tendência 2,7 → 2,6. Atenção:
+    17% das transições atingiram a profundidade máxima da árvore (12), o que
+    indica geometria difícil; não invalida os sorteios, mas registrar.
+  - As tendências praticamente não mudaram: os problemas de convergência não
+    estavam enviesando as estimativas.
+  - BFMI entre 0,26 e 0,29 nos g_com de Ateles, Cebus e Hadrosciurus
+    (ideal > 0,3): ressalva menor.
 - **Técnico**: o R às vezes sofre segfault ao encerrar (liberação de objetos do
   Stan), depois de tudo gravado; não afeta os resultados.
