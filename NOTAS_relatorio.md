@@ -21,7 +21,11 @@ Atualizar ao longo das análises.
   excluídos da estimativa de tamanho, mas mantidos como 1 avistamento na
   contagem de grupos. Anômalos concentrados em poucas UCs (ex. Hadrosciurus em
   Cazumbá-Iracema; Mazama americana em Tapajós-Arapiuns) → possível diferença de
-  registro entre equipes; vale consultar a equipe do Monitora.
+  registro entre equipes; vale consultar a equipe do Monitora. O padrão se
+  repete nas espécies adicionais: anômalos de Dasyprocta iacki concentrados
+  em Tapajós-Arapiuns (369 de 605), de D. fuliginosa e Microsciurus em
+  Cazumbá-Iracema, de D. leporina em Uatumã. Tapajós-Arapiuns e
+  Cazumbá-Iracema aparecem repetidamente.
 
 ## Modelo
 
