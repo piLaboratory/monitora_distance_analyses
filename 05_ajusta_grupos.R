@@ -30,13 +30,9 @@ source("04_prepara_dados_uc_ano.R")
 ## Configuracoes do amostrador
 cfg <- list(chains = 6, cores = min(6, parallel::detectCores()),
             adapt_delta = 0.99, max_treedepth = 12)
-## Iteracoes por modelo (aquecimento = metade). O g_com precisa de mais
-## sorteios para os desvios dos efeitos aleatorios atingirem n_eff > 400.
-iter_modelo <- c(g_sem = 4000, g_com = 6000)
+## Iteracoes: iter_padrao e iter_especie em 00_config.R
 
 dir.create(dir_ajustes, showWarnings = FALSE)
-arq <- function(m) file.path(dir_ajustes,
-                             paste0(gsub(" ", "_", especie), "_", m, ".rds"))
 
 ajusta <- function(formula, iter) {
     stan_distsamp(formula, data = umf_ua,
@@ -76,25 +72,28 @@ convergiu <- function(fit) {
 }
 
 ## Ajusta (ou carrega, se ja existir um ajuste com o mesmo numero de iteracoes)
-carrega_ou_ajusta <- function(m, estrutura) {
-    nome  <- paste0(m, "_", estrutura)
-    salvo <- if (file.exists(arq(nome))) readRDS(arq(nome)) else NULL
-    if (!is.null(salvo) && salvo@stanfit@sim$iter == iter_modelo[[m]]) return(salvo)
+carrega_ou_ajusta <- function(m, estrutura, iter = iter_padrao[[m]]) {
+    a <- arq_modelo(especie, m, estrutura, iter)
+    salvo <- if (file.exists(a)) readRDS(a) else NULL
+    if (!is.null(salvo) && salvo@stanfit@sim$iter == iter) return(salvo)
     t0 <- Sys.time()
-    fit <- ajusta(formulas[[estrutura]][[m]], iter_modelo[[m]])
-    message(sprintf("%s %s: %.1f min", especie, nome,
+    fit <- ajusta(formulas[[estrutura]][[m]], iter)
+    message(sprintf("%s %s_%s (%d iter): %.1f min", especie, m, estrutura, iter,
                     as.numeric(difftime(Sys.time(), t0, units = "mins"))))
-    saveRDS(fit, arq(nome))
+    saveRDS(fit, a)
     fit
 }
 
 ## Decisao da estrutura pela convergencia do g_sem com inclinacao por UC
+## (sempre com iter_padrao, igual para todas as especies)
 g_sem <- carrega_ou_ajusta("g_sem", "incl")
 conv_incl <- convergencia(g_sem)
 inclinacao_uc <- convergiu(g_sem)
-if (!inclinacao_uc) g_sem <- carrega_ou_ajusta("g_sem", "noincl")
 estrutura <- if (inclinacao_uc) "incl" else "noincl"
-g_com <- carrega_ou_ajusta("g_com", estrutura)
+## Modelos finais (com iteracoes extras, se definidas em iter_especie)
+if (!inclinacao_uc || iter_final(especie, "g_sem") != iter_padrao[["g_sem"]])
+    g_sem <- carrega_ou_ajusta("g_sem", estrutura, iter_final(especie, "g_sem"))
+g_com <- carrega_ou_ajusta("g_com", estrutura, iter_final(especie, "g_com"))
 message(sprintf("%s: g_sem com inclinacao -> Rhat %.3f, BFMI %.2f => %s inclinacao por UC",
                 especie, conv_incl$max_Rhat, conv_incl$min_BFMI,
                 if (inclinacao_uc) "COM" else "SEM"))
