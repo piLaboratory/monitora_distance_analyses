@@ -1,0 +1,649 @@
+---
+title: "Tendências populacionais de mamíferos amazônicos (ICMBio Monitora, 2014–2025): métodos e resultados"
+subtitle: "Amostragem por distância hierárquica com contagem de grupos — versão 2"
+date: "`r format(Sys.Date(), '%d/%m/%Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+  word_document:
+    toc: true
+---
+
+```{r setup, include = FALSE}
+## Este relatorio so LE tabelas prontas. Antes de compilar:
+##   1. 08_roda_todas.R          (ajusta e combina os modelos de todas as especies)
+##   2. 09_tabelas_relatorio.R   (gera as tabelas em relatorio_<versao>/tabelas/)
+## Compilar:  Rscript -e 'rmarkdown::render("relatorio_v2.Rmd")'
+## Para gerar um .docx: rmarkdown::render("relatorio_v2.Rmd", "word_document")
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.width = 8, dpi = 150)
+library(tidyverse)
+source("00_config.R")
+dir_rel <- paste0("relatorio_", versao)
+dir_tab <- file.path(dir_rel, "tabelas")
+dir_fig <- file.path(dir_rel, "figuras")
+dir.create(dir_fig, showWarnings = FALSE, recursive = TRUE)
+if (!file.exists(file.path(dir_tab, "T1_modelos_selecionados.csv")))
+    stop("Rode antes: Rscript 09_tabelas_relatorio.R")
+le <- function(nome) read_csv(file.path(dir_tab, nome), show_col_types = FALSE)
+
+## Formatacao com virgula decimal
+num <- function(x, d = 1) unname(mapply(function(a, b) formatC(a, format = "f", digits = b, decimal.mark = ","),
+                                         x, rep_len(d, length(x))))
+ic  <- function(m, a, b, d = 1) paste0(num(m, d), " (", num(a, d), " a ", num(b, d), ")")
+tab <- function(x, ...) knitr::kable(x, format.args = list(decimal.mark = ",", big.mark = "."), ...)
+## Nomes abreviados para os graficos
+abrev <- function(sp) sub("^(\\w)\\w+ ", "\\1. ", sp)
+## Grava a figura em png (para uso fora do relatorio) e a mostra
+salva <- function(g, nome, w = 8, h = 6) {
+    ggsave(file.path(dir_fig, nome), g, width = w, height = h, dpi = 300)
+    g
+}
+cores_ev <- c(declinio = "#C0392B", aumento = "#2471A3", inconclusivo = "grey45")
+
+t1 <- le("T1_modelos_selecionados.csv")
+s1 <- le("S1_amostragem.csv")
+n_sp <- nrow(t1)
+```
+
+# Processamento e tratamento dos dados
+
+Scripts: `00_config.R` (configurações), `01_prepara_dados.R`, `02_seleciona_especies.R`, `03_prepara_dados_da_especie.R`, `04_prepara_dados_uc_ano.R`.
+
+**Fonte e recorte**
+
+- Dados do componente florestal (mamíferos e aves) do Programa Monitora/ICMBio, obtidos no portal de dados do programa (<https://www.gov.br/icmbio/pt-br/assuntos/monitoramento/conteudo/dados>) e gravados em `data/dados_relatorio_florestal_mastoaves_2026.csv`. <!-- incluir a data do download -->
+- Recorte: bioma Amazônia, `r min(substr(s1$periodo, 1, 4))`–`r max(substr(s1$periodo, 6, 9))`.
+- Transectos lineares percorridos a pé; cada registro é um avistamento (grupo) com a distância perpendicular e o número de animais (`n_animais`).
+- Após o tratamento abaixo: 8.908 visitas a transectos (transecto × data) com esforço anotado, somando 43.520 km, em 48 UCs. Os dados por espécie estão na Tabela S1.
+
+**Correções de data e ano** (`01`)
+
+- *(a)* Se o ano da data difere mais de 1 do ano da campanha, considera-se erro de digitação no ano da data, que é substituído pelo ano da campanha. *Justificativa*: campanhas que atravessam a virada do ano explicam diferenças de 1, mas não maiores.
+- *(b)* Se a mesma UC e data aparecem com mais de um ano de campanha, usa-se o ano mais frequente. *Justificativa*: sem isso, a mesma visita seria contada duas vezes.
+
+**Esforço** (`01`)
+
+- O esforço (km) é anotado em uma única linha por transecto e data, que pode ser de ave, mamífero ou visita sem registro. Por isso é calculado com **todos** os registros, antes de qualquer filtro taxonômico.
+- Visitas sem esforço anotado (39) e seus registros são descartados: sem esforço não há como estimar densidade.
+
+**Registros de mamíferos** (`01`)
+
+- Classe Mammalia, identificação validada em nível de espécie (`class_taxon_val == "Espécie"`), excluído o cão doméstico.
+- Distância anotada e menor que 100 m.
+- Registros sem `n_animais` são mantidos: contam como avistamento (grupo), mas não entram no modelo de tamanho.
+- **Tamanhos anômalos**: `n_animais` acima do máximo plausível da espécie (`data/tamanho_max_grupo.csv`, valores com referência bibliográfica) é marcado como anômalo. O registro conta como grupo, mas sai do modelo de tamanho. *Justificativa*: erros de digitação ou agregações temporárias distorceriam o tamanho médio.
+- **Contagens parciais** (`cont_tot_par == "parcial"`): nem todos os indivíduos do grupo foram contados. São tratadas como censuradas no modelo de tamanho (ver abaixo).
+- Linhas idênticas em todos os campos (30) são apenas relatadas, não removidas.
+
+**Seleção de espécies** (`02`)
+
+- Espécies com pelo menos 100 avistamentos em pelo menos 10 UCs (critério inicial: 150 em 14, ampliado para incluir mais espécies). *Dasyprocta* sp. (sem identificação específica) é excluída.
+- Resultado: `r n_sp` espécies.
+
+**UCs de ocorrência**
+
+- Cada espécie é analisada só nas UCs dentro da sua distribuição, indicadas na tabela `data/conferencia_ocorrencia_especies_nas_ucs.csv` (`TRUE` = ocorre).
+- Fonte: fichas das espécies na base SALVE/ICMBio (Sistema de Avaliação do Risco de Extinção da Biodiversidade). Quando a ficha não tinha a informação, usou-se a do gênero. Para as 9 espécies acrescentadas depois, um rascunho feito a partir dos registros foi revisado com a mesma fonte.
+- Entram também UCs dentro da distribuição sem nenhuma detecção (zeros verdadeiros). Registros fora dessas UCs (poucos; o script avisa) são descartados.
+- *Justificativa*: zeros fora da distribuição não informam sobre a tendência e inflariam a variância entre UCs; zeros dentro da distribuição são informação legítima.
+
+**Truncagem e classes de distância** (`03`)
+
+- Truncagem no percentil 90 das distâncias de cada espécie. *Justificativa*: a cauda longa de distâncias raras prejudica o ajuste da função de detecção (Buckland et al. 2001).
+- Quatro classes: a primeira de 0 a 2 m; as outras três são os tercis das distâncias acima de 2 m. *Justificativa*: cerca de 20% das distâncias foram registradas como 0. Uma primeira classe larga absorve esse acúmulo e o arredondamento, sem exigir distâncias exatas.
+
+**Unidade de contagem: grupos** (`03`, `04`)
+
+- A resposta é o **número de avistamentos (grupos)** por classe de distância, e não o número de indivíduos.
+- *Justificativa*: na versão anterior, com indivíduos, a sobredispersão (φ) chegou a ~32 e acompanhava o tamanho médio ponderado do grupo (Σn²/Σn; correlação de Spearman 0,99). Grupos são detectados como unidades; contar indivíduos viola a independência do modelo de Poisson. Com grupos, φ ≈ 1–2.
+- A densidade de indivíduos é recuperada multiplicando a densidade de grupos pelo tamanho médio do grupo, estimado num modelo separado.
+
+**Agregação por UC-ano** (`04`)
+
+- Contagens e esforço (km) somados por UC e ano. *Justificativa*: sob Poisson, somar as visitas de um UC-ano não muda a informação sobre a tendência e reduz o tamanho do modelo. A pseudorreplicação dentro do UC-ano é tratada pelo efeito aleatório `(1 | cnuc_ano)`.
+- Ano padronizado: `ano_c = (ano − 2014) / 11`, de 0 a 1. Tendência em %/ano = 100·(exp(β/11) − 1), onde β é o coeficiente de `ano_c`.
+
+**Dados de tamanho de grupo** (`04`)
+
+- Usam os mesmos avistamentos do modelo de grupos (UCs de ocorrência, distâncias truncadas), excluídos os sem `n_animais`, com zero ou anômalos.
+- Resposta: s = n − 1 (todo grupo tem ao menos um animal).
+- Contagem parcial de n animais informa apenas que o grupo tinha n ou mais, isto é, S > n − 2: censura à direita com `s_obs = n − 2`. Parciais com n = 1 não informam nada e são excluídas.
+- Distância padronizada (`dist_c`) entra como covariável (vies de tamanho; ver abaixo).
+
+# Modelos
+
+Scripts: `05_ajusta_grupos.R` (grupos), `06_ajusta_tamanho.R` (tamanho), `07_combina_tendencias.R` (combinação).
+
+## Densidade de grupos: amostragem por distância hierárquica
+
+- Modelo de Royle et al. (2004), ajustado com `ubms::stan_distsamp`: transectos lineares, distâncias em classes, função de detecção **half-normal**, densidade de grupos por ha (`output = "density"`, `unitsOut = "ha"`).
+- Abundância de grupos em cada UC-ano ~ Poisson(λ·área amostrada); a área é 2·w·L (w = distância de truncagem, L = km percorridos no UC-ano).
+- Fórmula do `ubms`: `~ detecção ~ densidade`.
+
+**Submodelo de detecção** (todos os modelos): `log(σ) ~ ano_c`
+
+- *Justificativa do `ano_c`*: permite que a detectabilidade mude ao longo do tempo (troca de observadores, treinamento, protocolo), sem confundir essa mudança com tendência populacional.
+- *Sem efeito de UC na detecção*: com poucas detecções por UC, detecção e densidade de cada UC não são separáveis. No teste com *Tayassu pecari*, as divergências se concentravam em valores altos do desvio do efeito de UC na detecção.
+
+**Submodelo de densidade** (escala log): quatro estruturas candidatas
+
+| Modelo | Fórmula da densidade | Quando |
+|---|---|---|
+| g_sem, com inclinação por UC | `ano_c + (ano_c || cnuc)` | inclinação por UC converge |
+| g_com, com inclinação por UC | `ano_c + (ano_c || cnuc) + (1 | cnuc_ano)` | idem, com sobredispersão |
+| g_sem, sem inclinação por UC | `ano_c + (1 | cnuc)` | inclinação por UC não converge |
+| g_com, sem inclinação por UC | `ano_c + (1 | cnuc) + (1 | cnuc_ano)` | idem, com sobredispersão |
+
+- `ano_c` (efeito fixo): tendência média, a resposta à pergunta principal.
+- `(1 | cnuc)`: as UCs diferem em densidade média.
+- `(ano_c | cnuc)`: a tendência pode variar entre UCs; permite estimar a tendência de cada UC com informação compartilhada (encolhimento para a média).
+- `||` (efeitos não correlacionados): um parâmetro a menos; a correlação entre intercepto e inclinação seria mal estimada com 8–48 UCs e prejudicaria a convergência.
+- `(1 | cnuc_ano)`: efeito por observação (cada UC-ano é uma linha), que transforma o Poisson em Poisson-lognormal. Absorve variação extra-Poisson (flutuações anuais, agregação espacial, pseudorreplicação das visitas). O `ubms` não oferece binomial negativa para `stan_distsamp`, por isso essa é a alternativa.
+- Covariáveis da versão anterior (categoria e área da UC) foram retiradas: a pergunta é a tendência, e o efeito aleatório de UC já absorve as diferenças de nível entre UCs.
+
+## Tamanho de grupo: binomial negativa com censura
+
+- `brms::brm`, família binomial negativa (ligação log), em s = n − 1:
+  `s_obs | cens(censura) ~ ano_c + dist_c + (ano_c || cnuc)`.
+- Priors fracamente informativos: intercepto normal(0, 2); coeficientes normal(0, 1); desvios t de Student(3, 0, 1); forma gama(2; 0,5).
+- *Binomial negativa*: os tamanhos são muito mais variáveis que Poisson (forma estimada entre ~0,2 e ~3).
+- *`ano_c` e `(ano_c || cnuc)`*: o tamanho médio pode mudar ao longo do tempo e entre UCs; essa mudança entra na tendência de indivíduos.
+- *`dist_c` (correção do vies de tamanho)*: grupos maiores tendem a ser detectados mais longe; sem correção, o tamanho médio fica superestimado. O tamanho é previsto **a distância zero**, onde a detecção não depende do tamanho.
+- *Sensibilidade sem censura*: o mesmo modelo, sem `cens()`, só com as contagens totais. *Justificativa*: a fração de contagens parciais aumentou ao longo do tempo (Tabela S8), o que faz o modelo censurado gerar tendências positivas espúrias no tamanho. O modelo sem censura é a estimativa conservadora.
+
+## Combinação: densidade e tendência de indivíduos
+
+- Por sorteio da posterior: D_ind(t) = D_grp(t) × [1 + exp(η_tam(t))], com η_tam a distância zero.
+- Os dois modelos foram ajustados separadamente; os sorteios são pareados ao acaso (mesmo número de sorteios), o que propaga a incerteza dos dois.
+- Tendência (%/ano) = 100·[(D(2025)/D(2014))^(1/11) − 1]. Pela razão entre o último e o primeiro ano, porque o tamanho médio (1 + exp(η)) não é log-linear no ano.
+- "UC típica": efeitos aleatórios iguais a zero (corresponde à mediana entre UCs, não à média).
+- Três componentes reportados: **grupos** (resultado principal), **indivíduos** (tamanho com censura) e **indivíduos sem censura** (conservador).
+
+# Ajuste no ubms
+
+- Pacote `ubms` (interface do Stan, só `rstan`; amostrador NUTS).
+- 6 cadeias; iterações: 4.000 (g_sem) e 6.000 (g_com), metade de aquecimento; `adapt_delta = 0,99`, `max_treedepth = 12` (`05`).
+- Iterações extras só nos modelos finais que não atingiram Rhat ≤ 1,01 com o padrão (`iter_especie` em `00_config.R`): *Eira barbara* (g_sem 10.000, g_com 12.000), *Hadrosciurus spadiceus* e *Cebus unicolor* (g_com 12.000). As tendências não mudaram com o reajuste.
+- Priors padrão do `ubms` (versão usada; ver `?stan_distsamp`): interceptos normal(0, 5), coeficientes normal(0, 2,5), desvios dos efeitos aleatórios gama(1, 1).
+- Unidades: distâncias e comprimentos em km (`unitsIn = "km"`), logo σ é estimado em km (convertido para m nas tabelas); densidade por ha (convertida para km² nas tabelas: × 100).
+- Modelo de tamanho no `brms` (backend `rstan`): 6 cadeias, 2.000 iterações (1.000 de aquecimento), `adapt_delta = 0,95`, `init = 0`, `seed = 1`.
+- Cuidados práticos:
+  - O `ubms` usa parametrização centrada dos efeitos aleatórios. Com dados esparsos, isso gera "funis" (BFMI baixo, divergências) nos desvios dos efeitos aleatórios; por isso o critério de convergência abaixo inclui o BFMI.
+  - `tidyr::extract` mascara `ubms::extract`, e o `brms` mascara `loo`, `posterior_linpred` e outras: usar sempre o prefixo do pacote (`ubms::extract`, `brms::posterior_linpred`).
+  - O R às vezes sofre falha de segmentação ao encerrar, na liberação dos objetos do Stan, depois de tudo gravado; não afeta os resultados.
+  - `posterior_predict` e `gof` do `ubms` sorteiam a abundância latente **condicionada** às contagens observadas; por isso a dispersão φ foi calculada com o valor esperado não condicionado (próxima seção).
+- Cada espécie roda em um processo R separado (`roda_especie.R`, chamado por `08_roda_todas.R`); os ajustes ficam em `ajustes_v2/*.rds` e são reaproveitados.
+
+# Critérios de comparação de modelos
+
+**1. Inclinação por UC** (por espécie)
+
+- Ajusta-se o g_sem com inclinação por UC, com as iterações padrão. Se Rhat máximo ≤ `r conv_max_rhat` e BFMI mínimo ≥ `r conv_min_bfmi`, a espécie mantém a inclinação por UC; senão, os dois modelos são ajustados sem ela (só tendência média).
+- *Justificativa*: um desvio de inclinações mal convergido daria tendências por UC sem confiabilidade. A decisão usa as mesmas iterações para todas as espécies, para ser comparável.
+
+**2. g_sem ou g_com** (por espécie)
+
+- φ ajustado = Σ Pearson / (n − p_eff), nos totais por UC-ano, com valor esperado **não condicionado** E[y] = λ·área·p (p = probabilidade de detectar um grupo dentro da faixa truncada). n = número de UC-anos; p_eff = número efetivo de parâmetros (p_loo) do g_sem.
+- Se φ ajustado do g_sem > `r num(limiar_phi)`, o principal é o g_com; senão, o g_sem. O outro fica como sensibilidade.
+- Se p_eff ≥ n, φ ajustado não é definido e é tratado como infinito (escolhe o g_com). Isso ocorreu em *Dasyprocta iacki* (p_eff 137,5; n = 81).
+- *Justificativa*: o g_com só é necessário se houver variação extra-Poisson; ele custa parâmetros e convergência mais difícil. O LOO não serve para escolher: com o efeito por observação, há muitos k de Pareto altos (> 0,7). A divisão por (n − p_eff) desconta os graus de liberdade gastos pelos efeitos aleatórios.
+
+**3. Convergência dos modelos finais**
+
+- Rhat ≤ 1,01 e n_eff > 400 nos efeitos fixos e nos desvios dos efeitos aleatórios; divergências e BFMI relatados (Tabela S2).
+
+**4. Evidência de tendência**
+
+- Média: há evidência de declínio (ou aumento) quando o intervalo de credibilidade de 95% exclui zero. Também se relata P(declínio) = fração dos sorteios com tendência negativa.
+- Por UC: só nas espécies com inclinação por UC, e só em UCs **classificáveis** (≥ `r crit_min_grupos` grupos detectados em ≥ `r crit_min_anos` anos com detecção). *Justificativa*: com poucos dados, a tendência de uma UC é quase só a média geral encolhida, e classificá-la seria enganoso.
+
+**5. Qualidade de ajuste** (só relatada, não usada na escolha)
+
+- Qui-quadrado N-mixture do `ubms::gof` (500 sorteios) e valor-p bayesiano (P[estatística simulada > observada]); valores próximos de 0 indicam que os dados variam mais do que o modelo prevê.
+- Ressalva: o `gof` simula a abundância latente condicionada às contagens observadas, por isso é pouco sensível à sobredispersão. A dispersão φ (critério 2) é o diagnóstico usado para isso.
+
+# Como ler os parâmetros
+
+**Densidade de grupos** (Tabela S3, `state`; escala log, por ha)
+
+- `(Intercept)`: log da densidade de grupos por ha em 2014 (ano_c = 0) numa UC típica. exp(intercepto) × 100 = grupos/km².
+- `ano_c`: variação do log da densidade ao longo de **todo** o período (2014 a 2025, 11 anos). exp(β) é a razão entre a densidade de 2025 e a de 2014: β = −0,5 significa que a densidade caiu para exp(−0,5) = 61% da inicial. Por ano: 100·(exp(β/11) − 1) %.
+- `sigma [1|cnuc]`: desvio-padrão, entre UCs, do log da densidade. Ex.: 0,5 indica que uma UC um desvio acima da típica tem densidade exp(0,5) ≈ 1,6 vez maior.
+- `sigma [ano_c|cnuc]`: desvio-padrão, entre UCs, da inclinação (na escala de ano_c, ou seja, do período todo). É o quanto as tendências das UCs diferem da tendência média.
+- `sigma [1|cnuc_ano]` (só g_com): variação extra-Poisson entre UC-anos, além das diferenças entre UCs e da tendência.
+- Desvios-padrão (`sigma [·]`) são sempre positivos.
+
+**Detecção** (Tabela S3, `det`; Tabelas 2 e S4)
+
+- Função half-normal: g(x) = exp(−x²/2σ²), x = distância perpendicular ao transecto.
+- `(Intercept)`: log(σ) em 2014, com σ em **km** (unidade das distâncias no ajuste). exp(intercepto) × 1000 = σ em metros.
+- `ano_c`: variação de log(σ) no período; exp(β) é a razão entre o σ de 2025 e o de 2014.
+- σ é a distância em que a detecção cai para 61% (a 2σ cai para 14%; a 3σ é quase zero). Não é uma distância máxima.
+- ESW (largura efetiva de faixa, de cada lado): a largura que uma faixa com detecção perfeita precisaria ter para registrar o mesmo número de grupos. ESW = ∫₀ᵂ g(x) dx, com W = distância de truncagem.
+- p = ESW / W: proporção esperada dos grupos presentes entre 0 e W que são detectados.
+- Premissa: detecção certa sobre a linha, g(0) = 1. A primeira classe de 0 a 2 m torna a premissa menos exigente (basta detectar tudo até 2 m).
+- σ, ESW e p dependem da truncagem e do habitat; não são propriedades fixas da espécie. Como W varia entre espécies (percentil 90 de cada uma), compare espécies preferencialmente por σ.
+
+**Tamanho de grupo** (Tabela S6; escala log de n − 1)
+
+- `Intercept`: log(tamanho médio − 1) em 2014, numa UC típica, à distância média. O relatório usa o tamanho previsto a distância zero.
+- `ano_c`: variação no período, na mesma escala. `dist_c`: efeito de um desvio-padrão de distância (> 0: grupos maiores detectados mais longe).
+- `sd(Intercept)`, `sd(ano_c)` (`| cnuc`): desvios entre UCs. `shape`: forma da binomial negativa (quanto menor, mais variáveis os tamanhos).
+
+# Resultados
+
+## Modelos selecionados
+
+### Densidade de grupos
+
+```{r t1a}
+t1 |>
+    transmute(Espécie = especie,
+              `Modelo` = modelo_principal,
+              `Inclinação por UC` = if_else(inclinacao_uc, "sim", "não"),
+              `Teste incl.: Rhat` = num(teste_incl_Rhat, 3),
+              `Teste incl.: BFMI` = num(teste_incl_BFMI, 2),
+              `φ g_sem` = num(phi_g_sem, 2),
+              `p_eff` = num(p_eff_g_sem, 1),
+              `φ ajustado` = num(phi_aj_g_sem, 2),
+              `Iterações` = iter_final) |>
+    tab(caption = "Tabela 1a. Modelo de densidade de grupos escolhido por espécie. O teste de inclinação usa o g_sem com inclinação por UC; φ ajustado > 1,5 leva ao g_com.")
+```
+
+- Inclinação por UC mantida em `r sum(t1$inclinacao_uc)` de `r n_sp` espécies.
+- Modelo principal g_com (sobredispersão) em `r sum(t1$modelo_principal == "g_com")` espécies; g_sem em `r sum(t1$modelo_principal == "g_sem")`.
+
+### Tamanho dos grupos
+
+```{r t1b}
+t1 |>
+    transmute(Espécie = especie,
+              `Avistamentos` = avistamentos_tamanho,
+              `% parciais` = num(pct_parciais, 1),
+              `Coef. distância (IC 95%)` = ic(coef_distancia, coef_distancia_ic_inf,
+                                              coef_distancia_ic_sup, 2)) |>
+    tab(caption = "Tabela 1b. Modelo de tamanho de grupo (o mesmo para todas as espécies: binomial negativa em n − 1, com censura das contagens parciais, ano_c + dist_c + (ano_c || cnuc)). Coeficiente de distância > 0: grupos maiores detectados mais longe.")
+```
+
+- Coeficiente de distância com IC acima de zero (vies de tamanho) em `r sum(t1$coef_distancia_ic_inf > 0)` espécies: `r paste(abrev(t1$especie[t1$coef_distancia_ic_inf > 0]), collapse = ", ")`.
+- Parâmetros e convergência dos modelos de tamanho: Tabelas S2 e S6.
+
+## Sobredispersão: por que contar grupos
+
+```{r disp}
+s7 <- le("S7_comparacao_g_sem_g_com.csv")
+disp <- s1 |>
+    select(especie, tam_medio_obs, tam_ponderado) |>
+    left_join(filter(s7, modelo == "g_sem") |> select(especie, phi, phi_aj), by = "especie") |>
+    left_join(select(t1, especie, modelo_principal), by = "especie") |>
+    arrange(desc(tam_ponderado))
+disp |>
+    transmute(Espécie = especie, `Tamanho médio` = num(tam_medio_obs, 1),
+              `Σn²/Σn (φ esperado com indivíduos)` = num(tam_ponderado, 1),
+              `φ grupos (g_sem)` = num(phi, 2), `φ ajustado` = num(phi_aj, 2),
+              `Modelo escolhido` = modelo_principal) |>
+    tab(caption = "Tabela 1c. Dispersão. Σn²/Σn: tamanho do grupo ao qual pertence um indivíduo típico; é a razão variância/média esperada se a contagem fosse de indivíduos e os grupos fossem detectados de forma independente. φ grupos: dispersão de Pearson das contagens de grupos por UC-ano no g_sem (1 = Poisson).")
+```
+
+- Na versão anterior, com indivíduos, φ ia de 1,1 a 31,6 e acompanhava Σn²/Σn (Spearman 0,99): o agrupamento explicava o excesso de variância.
+- Contando grupos, a dispersão no g_sem vai de `r num(min(disp$phi), 2)` a `r num(max(disp$phi), 2)` (φ ajustado: `r num(min(disp$phi_aj[is.finite(disp$phi_aj)]), 2)` a `r num(max(disp$phi_aj[is.finite(disp$phi_aj)]), 2)``r inf <- disp$especie[!is.finite(disp$phi_aj)]; if (length(inf)) paste0("; infinito em ", paste0("*", inf, "*", collapse = ", ")) else ""`). A dispersão restante não acompanha mais o tamanho de grupo: Spearman entre Σn²/Σn e φ = `r num(cor(disp$tam_ponderado, disp$phi, method = "spearman"), 2)`.
+- Onde φ ajustado > 1,5, o g_com modela a variação extra. Na versão anterior, a sobredispersão foi tratada depois do ajuste, ampliando os intervalos por √φ (correção de pior caso, tipo quase-Poisson). Aqui ela entra no próprio modelo, o que dá intervalos coerentes sem correção posterior.
+
+## Convergência
+
+```{r conv}
+s2 <- le("S2_convergencia.csv")
+cg <- s2 |>
+    filter(modelo %in% c("g_sem", "g_com")) |>
+    summarise(Rhat = max(Rhat_max), n_eff = min(n_eff_min), div = first(divergencias),
+              bfmi = first(BFMI_min), td = first(treedepth_max_atingido), iter = first(iter),
+              .by = c(especie, modelo))
+ct <- s2 |>
+    filter(startsWith(modelo, "tamanho")) |>
+    summarise(Rhat = max(Rhat_max), div = sum(divergencias), .by = especie)
+lst <- function(x) if (length(x)) paste(abrev(x), collapse = ", ") else "nenhuma"
+```
+
+- Modelos de grupos escolhidos com Rhat ≤ 1,01 e n_eff > 400 em todos os parâmetros: `r sum(cg$Rhat <= 1.01 & cg$n_eff > 400)` de `r nrow(cg)` espécies. Fora do critério: `r lst(cg$especie[cg$Rhat > 1.01 | cg$n_eff <= 400])`.
+- Reajustados com mais iterações (`iter_especie`): `r lst(cg$especie[cg$iter > iter_padrao[cg$modelo]])`.
+- Com transições divergentes: `r lst(cg$especie[cg$div > 0])`. BFMI < 0,3 (ressalva menor): `r lst(cg$especie[cg$bfmi < 0.3])`. Profundidade máxima da árvore atingida: `r lst(cg$especie[cg$td > 0])`.
+- Modelos de tamanho com Rhat > 1,01: `r lst(ct$especie[ct$Rhat > 1.01])`; com divergências: `r lst(ct$especie[ct$div > 0])`.
+- Detalhes por grupo de parâmetros: Tabela S2. Ressalvas conhecidas: *Microsciurus flaviventer* (g_com com muitas divergências; com 91 grupos, o efeito UC-ano não é bem identificado; o g_sem convergido dá a mesma conclusão) e *Cebus unicolor* (17% das transições no limite da árvore, sinal de geometria difícil, sem efeito na tendência após o reajuste).
+
+## Detecção
+
+```{r t2}
+t2 <- le("T2_deteccao.csv")
+t2 |>
+    transmute(Espécie = especie, `Truncagem (m)` = num(truncagem_m, 1),
+              `σ 2014 (m)` = ic(sigma_m_2014_media, sigma_m_2014_ic_inf, sigma_m_2014_ic_sup),
+              `σ 2025 (m)` = ic(sigma_m_2025_media, sigma_m_2025_ic_inf, sigma_m_2025_ic_sup),
+              `ESW 2025 (m)` = num(ESW_m_2025_media, 1),
+              `p 2025` = num(p_deteccao_2025_media, 2),
+              `Mudança de σ no período (%)` = ic(mudanca_sigma_pct, mudanca_sigma_pct_ic_inf,
+                                                 mudanca_sigma_pct_ic_sup, 0)) |>
+    tab(caption = "Tabela 2. Detecção (modelo principal). σ: escala da half-normal; ESW: largura efetiva de faixa (de um lado); p: probabilidade de detectar um grupo presente dentro da distância de truncagem. Média e IC 95%.")
+```
+
+```{r det-resumo}
+dd <- t2 |>
+    left_join(select(s1, especie, grupos_detectados), by = "especie") |>
+    mutate(p = p_deteccao_2025_media,
+           classe = cut(p, c(0, 0.5, 0.75, 1), c("baixa", "média", "alta"), include.lowest = TRUE),
+           sigma_W = sigma_m_2025_media / truncagem_m,
+           largura_rel = (sigma_m_2025_ic_sup - sigma_m_2025_ic_inf) / sigma_m_2025_media)
+ext <- function(v, f) dd$especie[f(dd[[v]]) == dd[[v]]][1]
+cl <- split(abrev(dd$especie), dd$classe)
+rho <- cor(dd$largura_rel, dd$grupos_detectados, method = "spearman")
+```
+
+- σ (2025) variou de `r num(min(dd$sigma_m_2025_media))` m (*`r ext("sigma_m_2025_media", min)`*) a `r num(max(dd$sigma_m_2025_media))` m (*`r ext("sigma_m_2025_media", max)`*); ESW de `r num(min(dd$ESW_m_2025_media))` a `r num(max(dd$ESW_m_2025_media))` m; p de `r num(min(dd$p), 2)` (*`r ext("p", min)`*) a `r num(max(dd$p), 2)` (*`r ext("p", max)`*).
+- Classes de detectabilidade (p em 2025): alta, p ≥ 0,75: `r paste(cl$alta, collapse = ", ")`; média, 0,5–0,75: `r paste(cl[["média"]], collapse = ", ")`; baixa, p < 0,5: `r paste(cl$baixa, collapse = ", ")`.
+- σ ≥ 80% da truncagem (detecção quase plana dentro da faixa; truncagem talvez apertada, ou espécie muito visível): `r x <- abrev(dd$especie[dd$sigma_W >= 0.8]); if (length(x)) paste(x, collapse = ", ") else "nenhuma espécie"`.
+- Largura relativa do IC de σ × número de grupos detectados: correlação de Spearman = `r num(rho, 2)` (esperado: negativa, intervalos mais largos com menos dados).
+- Pontos para discutir: as diferenças de σ fazem sentido pelo tamanho do animal, tamanho do grupo, comportamento (arborícola, terrestre, críptico, fugidio) e vegetação? Grupos grandes e barulhentos tendem a ser detectados mais longe.
+- Mudança de σ no período com IC excluindo zero em `r sum(t2$mudanca_sigma_pct_ic_inf > 0 | t2$mudanca_sigma_pct_ic_sup < 0)` espécies: `r paste(abrev(t2$especie[t2$mudanca_sigma_pct_ic_inf > 0 | t2$mudanca_sigma_pct_ic_sup < 0]), collapse = ", ")`. Essa mudança é absorvida pelo submodelo de detecção e não entra na tendência de densidade.
+
+## Densidade média no período
+
+```{r t3}
+t3 <- le("T3_densidade_media.csv")
+t3w <- t3 |>
+    mutate(txt = ic(media, ic_inf, ic_sup, if_else(startsWith(componente, "tamanho"), 1, 2))) |>
+    select(especie, componente, txt) |>
+    pivot_wider(names_from = componente, values_from = txt)
+t3w |>
+    transmute(Espécie = especie,
+              `Grupos/km²` = grupos,
+              `Tamanho médio (censura)` = tamanho,
+              `Indivíduos/km² (censura)` = individuos,
+              `Tamanho médio (sem censura)` = tamanho_sc,
+              `Indivíduos/km² (sem censura; conservador)` = individuos_sc) |>
+    tab(caption = "Tabela 3. Densidade média em 2014–2025 numa UC típica (efeitos aleatórios = 0), média dos anos, com IC 95%. Tamanho médio a distância zero. 'Sem censura': só contagens totais, excluídos registros incompletos e anômalos.")
+```
+
+```{r f1, fig.height = 7}
+d3 <- t3 |>
+    filter(!startsWith(componente, "tamanho")) |>
+    mutate(componente = factor(componente, c("grupos", "individuos", "individuos_sc"),
+                               c("Grupos", "Indivíduos (censura)", "Indivíduos (sem censura)")),
+           especie = fct_reorder(abrev(especie), media, .fun = max))
+g1 <- ggplot(d3, aes(x = media, y = especie, colour = componente)) +
+    geom_pointrange(aes(xmin = ic_inf, xmax = ic_sup),
+                    position = position_dodge(width = 0.6), size = 0.3) +
+    scale_x_log10() +
+    scale_colour_manual(values = c("black", "#E67E22", "#16A085")) +
+    labs(x = "Densidade média 2014–2025 (por km², escala log)", y = NULL, colour = NULL) +
+    theme_bw() + theme(legend.position = "top", axis.text.y = element_text(face = "italic"))
+salva(g1, "F1_densidade_media.png", h = 7)
+```
+
+**Figura 1.** Densidade média por espécie (UC típica, IC 95%), em grupos e em indivíduos, com o tamanho de grupo estimado com e sem as contagens parciais.
+
+```{r f1b, fig.height = 9}
+s9 <- le("S9_densidade_por_ano.csv") |> filter(componente %in% c("grupos", "individuos_sc"))
+g1b <- ggplot(s9, aes(ano, media, fill = componente, colour = componente)) +
+    geom_ribbon(aes(ymin = ic_inf, ymax = ic_sup), alpha = 0.2, colour = NA) +
+    geom_line() +
+    facet_wrap(~ especie, scales = "free_y", ncol = 4) +
+    scale_colour_manual(values = c(grupos = "black", individuos_sc = "#16A085"),
+                        labels = c("Grupos", "Indivíduos (sem censura)")) +
+    scale_fill_manual(values = c(grupos = "black", individuos_sc = "#16A085"),
+                      labels = c("Grupos", "Indivíduos (sem censura)")) +
+    labs(x = NULL, y = "Densidade (por km²)", colour = NULL, fill = NULL) +
+    theme_bw() + theme(legend.position = "top", strip.text = element_text(face = "italic", size = 7))
+salva(g1b, "F1b_densidade_por_ano.png", w = 10, h = 11)
+```
+
+**Figura 1b.** Densidade prevista por ano numa UC típica (média e IC 95%; Tabela S9).
+
+## Tendência média por espécie
+
+```{r t4}
+t4 <- le("T4_tendencia_media.csv")
+t4p <- filter(t4, principal)
+t4w <- t4p |>
+    filter(componente %in% c("grupos", "individuos", "individuos_sc")) |>
+    mutate(txt = ic(media, ic_inf, ic_sup)) |>
+    select(especie, componente, txt) |>
+    pivot_wider(names_from = componente, values_from = txt) |>
+    left_join(filter(t4p, componente == "grupos") |>
+                  select(especie, P_declinio, evidencia), by = "especie") |>
+    left_join(filter(t4, !principal, componente == "grupos") |>
+                  transmute(especie, alt = ic(media, ic_inf, ic_sup)), by = "especie") |>
+    arrange(desc(P_declinio))
+t4w |>
+    transmute(Espécie = especie,
+              `Grupos (%/ano)` = grupos,
+              `P(declínio)` = num(P_declinio, 3),
+              Evidência = evidencia,
+              `Indivíduos (censura)` = individuos,
+              `Indivíduos (sem censura)` = individuos_sc,
+              `Grupos, outro modelo` = alt) |>
+    tab(caption = "Tabela 4. Tendência média (%/ano, IC 95%) numa UC típica, modelo principal. Evidência pelo IC 95% dos grupos. 'Outro modelo': g_sem ou g_com não escolhido (sensibilidade).")
+```
+
+```{r f2, fig.height = 7}
+d4 <- t4p |>
+    filter(componente %in% c("grupos", "individuos_sc")) |>
+    mutate(evidencia = factor(evidencia, names(cores_ev)),
+           componente = factor(componente, c("grupos", "individuos_sc"),
+                               c("Grupos", "Indivíduos (sem censura)")))
+ordem <- d4 |> filter(componente == "Grupos") |> arrange(media) |> pull(especie)
+d4 <- mutate(d4, especie = factor(especie, ordem, abrev(ordem)))
+g2 <- ggplot(d4, aes(x = media, y = especie, colour = evidencia, shape = componente)) +
+    geom_vline(xintercept = 0, linetype = 2) +
+    geom_pointrange(aes(xmin = ic_inf, xmax = ic_sup),
+                    position = position_dodge(width = 0.6), size = 0.3) +
+    scale_colour_manual(values = cores_ev, drop = FALSE) +
+    scale_shape_manual(values = c(16, 1)) +
+    labs(x = "Tendência média (%/ano, IC 95%)", y = NULL, colour = "Evidência", shape = NULL) +
+    theme_bw() + theme(legend.position = "top", legend.box = "vertical",
+                       axis.text.y = element_text(face = "italic"))
+salva(g2, "F2_tendencia_media.png", h = 7)
+```
+
+**Figura 2.** Tendência média por espécie (modelo principal). Cor: evidência pelo IC 95% de cada componente.
+
+- Evidência de **declínio** em grupos: `r d <- filter(t4w, evidencia == "declinio"); if (nrow(d)) paste0("*", d$especie, "* (", d$grupos, ")", collapse = "; ") else "nenhuma"`.
+- Evidência de **aumento** em grupos: `r d <- filter(t4w, evidencia == "aumento"); if (nrow(d)) paste0("*", d$especie, "*", collapse = ", ") else "nenhuma espécie"`.
+- Espécies com IC de grupos inconclusivo mas P(declínio) ≥ 0,90: `r d <- filter(t4w, evidencia == "inconclusivo", P_declinio >= 0.9); paste0("*", d$especie, "*", collapse = ", ")`.
+- Indivíduos (censura) × sem censura: nas espécies gregárias com aumento das contagens parciais (primatas, *Dicotyles*, *Nasua*), a versão com censura dá tendências mais altas, porque o tamanho censurado cresce com a fração de parciais (Tabela S8). Recomenda-se interpretar grupos e indivíduos sem censura.
+
+## Tendência por UC
+
+```{r t5}
+t5 <- le("T5_tendencia_uc.csv") |> filter(componente == "grupos")
+t5 |>
+    summarise(`UCs no modelo` = n(),
+              `UCs classificáveis` = sum(classificavel),
+              Declínio = sum(evidencia == "declinio"),
+              Aumento = sum(evidencia == "aumento"),
+              Inconclusivo = sum(evidencia == "inconclusivo"),
+              .by = especie) |>
+    rename(Espécie = especie) |>
+    tab(caption = paste0("Tabela 5. Tendência de grupos por UC, espécies com inclinação por UC. Classificável: ≥ ",
+                         crit_min_grupos, " grupos em ≥ ", crit_min_anos,
+                         " anos com detecção. Lista completa: relatorio_v2/tabelas/T5_tendencia_uc.csv."))
+```
+
+```{r f3, fig.height = 11}
+d5 <- t5 |>
+    filter(classificavel) |>
+    mutate(evidencia = factor(evidencia, names(cores_ev)),
+           rotulo = paste0(uc, " (", n_grupos, ")"),
+           rotulo = paste(especie, rotulo, sep = "___"))
+d5 <- d5 |> mutate(rotulo = fct_reorder(rotulo, media))
+g3 <- ggplot(d5, aes(x = media, y = rotulo, colour = evidencia)) +
+    geom_vline(xintercept = 0, linetype = 2) +
+    geom_pointrange(aes(xmin = ic_inf, xmax = ic_sup), size = 0.2) +
+    facet_wrap(~ especie, scales = "free_y", ncol = 2) +
+    scale_y_discrete(labels = function(x) sub(".*___", "", x)) +
+    scale_colour_manual(values = cores_ev, drop = FALSE) +
+    labs(x = "Tendência de grupos (%/ano, IC 95%)", y = NULL, colour = "Evidência") +
+    theme_bw() + theme(legend.position = "top", strip.text = element_text(face = "italic"),
+                       axis.text.y = element_text(size = 6))
+salva(g3, "F3_tendencia_por_uc.png", w = 10, h = 12)
+```
+
+**Figura 3.** Tendência de grupos por UC (só UCs classificáveis), entre parênteses o número de grupos detectados.
+
+```{r t5b}
+t5 |>
+    filter(classificavel, evidencia != "inconclusivo") |>
+    transmute(Espécie = especie, UC = uc, `Grupos` = n_grupos,
+              `Anos com detecção` = anos_com_deteccao,
+              `%/ano (IC 95%)` = ic(media, ic_inf, ic_sup), Evidência = evidencia) |>
+    tab(caption = "Tabela 5b. UCs classificáveis com evidência de declínio ou aumento (grupos).")
+```
+
+# Tabelas suplementares
+
+Todas também em `relatorio_v2/tabelas/` (csv, decimal com ponto), com mais colunas do que as mostradas aqui.
+
+```{r s1}
+s1 |>
+    transmute(Espécie = especie, `UCs (ocorr.)` = ucs_ocorrencia,
+              `UCs c/ detecção` = ucs_com_deteccao, Visitas = visitas,
+              `UC-anos` = uc_anos, Anos = anos, `Grupos` = grupos_detectados,
+              `Indivíduos` = individuos_detectados,
+              `Truncagem (m)` = num(distancia_truncagem_m, 1),
+              `Classes de distância (m)` = limites_faixas_m,
+              `Esforço (km)` = round(esforco_km)) |>
+    tab(caption = "Tabela S1. Dados de amostragem por espécie, após truncagem e restrição às UCs de ocorrência. Visitas: UC × data.")
+```
+
+```{r s2}
+le("S2_convergencia.csv") |>
+    transmute(Espécie = especie, Modelo = modelo, Parâmetros = grupo,
+              `Cadeias × iter (aquec.)` = paste0(cadeias, " × ", iter, " (", aquecimento, ")"),
+              adapt_delta = num(adapt_delta, 2),
+              `Rhat máx.` = num(Rhat_max, 3), `n_eff mín.` = round(n_eff_min),
+              Divergências = divergencias, `BFMI mín.` = num(BFMI_min, 2)) |>
+    tab(caption = "Tabela S2. Diagnóstico de convergência do modelo de grupos escolhido e dos modelos de tamanho, por grupo de parâmetros. Divergências e BFMI são do ajuste todo.")
+```
+
+```{r s3}
+le("S3_parametros_grupos.csv") |>
+    transmute(Espécie = especie, Modelo = modelo, Submodelo = submodelo, Parâmetro = parametro,
+              Média = num(mean, 3), DP = num(sd, 3), `2,5%` = num(`2.5%`, 3),
+              `50%` = num(`50%`, 3), `97,5%` = num(`97.5%`, 3),
+              Rhat = num(Rhat, 3), n_eff = round(n_eff)) |>
+    tab(caption = "Tabela S3. Parâmetros dos modelos de grupos escolhidos (escala log): média, desvio-padrão (DP), quantis da posterior, Rhat e n_eff. state: densidade de grupos (log grupos/ha; intercepto em 2014 numa UC típica; ano_c = variação no período 2014–2025; sigma [·] = desvios-padrão dos efeitos aleatórios). det: log(σ, em km) da half-normal e sua variação no período. Ver 'Como ler os parâmetros'. Quantis 25% e 75% no csv.")
+```
+
+```{r s4}
+le("S4_deteccao_parametros.csv") |>
+    transmute(Espécie = especie, Submodelo = submodelo, Parâmetro = parametro,
+              Média = num(mean, 3), `2,5%` = num(`2.5%`, 3), `97,5%` = num(`97.5%`, 3)) |>
+    tab(caption = "Tabela S4. Parâmetros de detecção (função half-normal g(x) = exp(−x²/2σ²)): coeficientes de log(σ, km) e quantidades derivadas em 2014 e 2025: σ (m); ESW = ∫₀ᵂ g(x) dx (m, de cada lado); p = ESW/W; mudança de σ no período (%). W: truncagem (Tabela S1). Médias e IC 95% calculados em cada sorteio da posterior e resumidos depois. Supõe g(0) = 1; σ constante entre UCs, variando só com o ano.")
+```
+
+```{r s5}
+le("S5_qualidade_ajuste.csv") |>
+    transmute(Espécie = especie, Modelo = modelo,
+              Principal = if_else(principal, "sim", ""),
+              `Qui-quadrado` = num(qui_quadrado, 1),
+              `Valor-p bayesiano` = num(valor_p_bayesiano, 3),
+              φ = num(phi, 2), `φ ajustado` = num(phi_aj, 2)) |>
+    tab(caption = "Tabela S5. Qualidade de ajuste: qui-quadrado N-mixture (média sobre 500 sorteios da posterior) e valor-p bayesiano (próximo de 0: mais variação nos dados do que o modelo prevê; pouco sensível à sobredispersão, ver métodos). φ: dispersão de Pearson das contagens de grupos por UC-ano, com valor esperado não condicionado (1 = Poisson); φ ajustado = Pearson/(n − p_eff).")
+```
+
+```{r s6}
+le("S6_parametros_tamanho.csv") |>
+    transmute(Espécie = especie, Modelo = modelo, n = n_avistamentos, Parâmetro = parametro,
+              Estimativa = num(Estimate, 3), `IC 95%` = paste0(num(`l-95% CI`, 2), " a ", num(`u-95% CI`, 2)),
+              Rhat = num(Rhat, 3), `ESS (bulk)` = round(Bulk_ESS)) |>
+    tab(caption = "Tabela S6. Parâmetros dos modelos de tamanho de grupo (binomial negativa em n − 1, escala log), com e sem censura das contagens parciais.")
+```
+
+```{r s7}
+le("S7_comparacao_g_sem_g_com.csv") |>
+    transmute(Espécie = especie, Modelo = modelo, Principal = if_else(principal, "sim", ""),
+              `Grupos %/ano` = ic(pct_ano, ic_inf, ic_sup),
+              `Rhat máx.` = num(max_Rhat, 3), Divergências = divergencias,
+              `BFMI mín.` = num(min_BFMI, 2), p_eff = num(p_eff, 1),
+              φ = num(phi, 2), `φ aj.` = num(phi_aj, 2),
+              `Valor-p bayes.` = num(valor_p_bayesiano, 3)) |>
+    tab(caption = "Tabela S7. Comparação g_sem × g_com por espécie (mesma estrutura de inclinação por UC).")
+```
+
+```{r s8, fig.height = 8}
+s8 <- le("S8_contagens_parciais.csv")
+g4 <- ggplot(s8, aes(ano, frac_parcial)) +
+    geom_line() + geom_point(aes(size = n_avistamentos), alpha = 0.6) +
+    facet_wrap(~ especie, ncol = 4) +
+    scale_size_area(max_size = 3) +
+    labs(x = NULL, y = "Fração de contagens parciais", size = "Avistamentos") +
+    theme_bw() + theme(strip.text = element_text(face = "italic", size = 7), legend.position = "top")
+salva(g4, "FS8_contagens_parciais.png", w = 10, h = 10)
+```
+
+**Figura S8.** Fração de contagens parciais por ano e espécie (dados do modelo de tamanho; tabela completa em `S8_contagens_parciais.csv`).
+
+# O que mudou em relação à versão anterior
+
+| Aspecto | Versão anterior | Esta versão | Motivo |
+|---|---|---|---|
+| Período | 2014–2022 | 2014–2025 | dados atualizados |
+| Espécies | 13 | `r n_sp` | critério de 100 registros em ≥ 10 UCs |
+| Contagem | indivíduos | grupos (avistamentos) | sobredispersão causada pelo agrupamento |
+| Tamanho de grupo | implícito na contagem | modelo próprio (binomial negativa, censura, distância) | indivíduos = grupos × tamanho, com incerteza propagada |
+| Unidade de análise | visita (UC × data) | UC-ano | mesma informação sob Poisson; modelo menor |
+| Covariáveis de densidade | categoria da UC, log da área, ano | só ano | foco na tendência; efeito de UC absorve o nível |
+| Detecção | σ constante | log(σ) ~ ano | detectabilidade pode mudar no tempo |
+| Distâncias | até 20 m, 5 classes por quantis | percentil 90 por espécie, 4 classes (0–2 m + tercis) | acúmulo de distâncias registradas como 0 |
+| UCs de ocorrência | SALVE | SALVE (ou gênero), revisado | mesma fonte |
+| Sobredispersão | IC ampliado por √φ depois do ajuste | g_com no próprio modelo, se φ ajustado > 1,5 | estimação em vez de correção de pior caso |
+| UC classificável | ≥ 15 detecções em ≥ 3 anos | ≥ 10 grupos em ≥ 3 anos | grupos são menos numerosos que indivíduos |
+
+Tendência média nas espécies com resultado na versão anterior (%/ano):
+
+| Espécie | Anterior (indivíduos) | Esta versão (grupos) |
+|---|---|---|
+| *Tayassu pecari* | −32,1 | `r with(filter(t4p, especie == "Tayassu pecari", componente == "grupos"), ic(media, ic_inf, ic_sup))` |
+| *Guerlinguetus aestuans* | −22,6 | `r with(filter(t4p, especie == "Guerlinguetus aestuans", componente == "grupos"), ic(media, ic_inf, ic_sup))` |
+| *Eira barbara* | −11,5 | `r with(filter(t4p, especie == "Eira barbara", componente == "grupos"), ic(media, ic_inf, ic_sup))` |
+| *Dicotyles tajacu* | −9,6 | `r with(filter(t4p, especie == "Dicotyles tajacu", componente == "grupos"), ic(media, ic_inf, ic_sup))` |
+
+- As tendências ficaram menos extremas: com indivíduos, poucos avistamentos de grupos grandes pesavam muito na tendência; o período mais longo também reduz o efeito de anos isolados.
+
+# Glossário
+
+- **UC-ano**: uma UC num ano; unidade de análise (contagens e esforço somados).
+- **Visita**: uma UC numa data (todos os transectos do dia).
+- **UC típica**: UC com efeitos aleatórios iguais a zero; representa a mediana entre UCs.
+- **φ (dispersão de Pearson)**: Σ(y − E)²/E dividido pelos graus de liberdade; 1 sob Poisson, > 1 indica mais variação que o previsto.
+- **p_eff (p_loo)**: número efetivo de parâmetros estimado pelo LOO; com efeitos aleatórios, é menor que o número nominal de parâmetros.
+- **Censura à direita**: a observação informa só um limite inferior (contagem parcial: o grupo tinha pelo menos n animais).
+- **Rhat**: compara a variação dentro e entre cadeias; ≈ 1 indica que as cadeias convergiram para a mesma distribuição (critério: ≤ 1,01).
+- **n_eff / ESS**: número efetivo de sorteios independentes (critério: > 400).
+- **Transição divergente**: o amostrador NUTS não conseguiu seguir a curvatura da posterior; muitas indicam estimativas possivelmente viesadas.
+- **BFMI**: fração de informação ausente; < 0,3 indica exploração ineficiente (típico de "funis" dos efeitos aleatórios).
+- **Profundidade máxima da árvore**: limite de passos do NUTS por iteração; atingi-lo com frequência indica posterior de geometria difícil.
+- **IC 95%**: intervalo de credibilidade (quantis 2,5% e 97,5% da posterior).
+- **P(declínio)**: fração dos sorteios da posterior com tendência negativa.
+
+# Reprodutibilidade
+
+Ordem de execução, a partir da pasta do projeto:
+
+```
+mkdir -p logs
+nohup Rscript 08_roda_todas.R > logs/08_geral.log 2>&1 &     # horas: ajusta tudo
+Rscript 09_tabelas_relatorio.R > logs/09_tabelas.log 2>&1      # tabelas csv
+Rscript -e 'rmarkdown::render("relatorio_v2.Rmd")'            # este relatório
+```
+
+- Uma espécie só: `Rscript roda_especie.R "Tayassu pecari"`.
+- Sementes: os modelos de tamanho usam `seed = 1`. Os modelos de grupos passaram a usar `seed = 1` só depois dos ajustes desta versão; um reajuste do zero dá resultados ligeiramente diferentes (variação de Monte Carlo), mas os arquivos `.rds` em `ajustes_v2/` reproduzem exatamente as tabelas.
+- Se as tabelas já tinham sido geradas antes de uma mudança no 09, apague `relatorio_v2/cache/` antes de rodar de novo.
+- Configurações (pastas, faixas, critérios, iterações): `00_config.R`. Mudar `versao` cria pastas novas, sem apagar as anteriores.
+- Para adaptar gráficos ou tabelas, edite os blocos de código deste arquivo: cada um lê um csv de `relatorio_v2/tabelas/` e grava a figura em `relatorio_v2/figuras/`.
+
+```{r sessao, echo = TRUE}
+sessionInfo()
+```

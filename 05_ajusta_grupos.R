@@ -34,11 +34,13 @@ cfg <- list(chains = 6, cores = min(6, parallel::detectCores()),
 
 dir.create(dir_ajustes, showWarnings = FALSE)
 
+## seed = 1: ajustes reprodutiveis. Os ajustes da versao v2 foram feitos antes
+## desta semente; um reajuste do zero da resultados ligeiramente diferentes.
 ajusta <- function(formula, iter) {
     stan_distsamp(formula, data = umf_ua,
                   keyfun = "halfnorm", output = "density", unitsOut = "ha",
                   chains = cfg$chains, iter = iter, warmup = iter / 2,
-                  cores = cfg$cores, refresh = 0,
+                  cores = cfg$cores, refresh = 0, seed = 1,
                   control = list(adapt_delta = cfg$adapt_delta,
                                  max_treedepth = cfg$max_treedepth))
 }

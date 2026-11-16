@@ -12,3 +12,6 @@ resultados/
 patches/
 ajustes*/
 resultados*/
+relatorio_*/cache/
+relatorio_*.html
+relatorio_*.docx
