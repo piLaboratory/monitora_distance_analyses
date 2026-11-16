@@ -170,3 +170,38 @@ Tendência de **grupos** (%/ano, IC 95%), modelo principal de cada espécie.
 
   Microsciurus, Saimiri e Alouatta têm poucos dados: tratar os resultados
   como indicativos.
+
+### Resultados das espécies adicionais
+
+Tendência média de grupos (%/ano, IC 95%), modelo principal:
+
+| Espécie | Modelo | Inclinação por UC | Grupos | Indivíduos (censura) | Indivíduos (sem censura) |
+|---|---|---|---|---|---|
+| Dasyprocta iacki | g_com | sim | −3,0 (−7,9 a 2,2) | −2,9 (−7,8 a 2,4) | −3,5 (−8,4 a 1,8) |
+| Dasyprocta leporina | g_com | sim | 3,2 (−3,5 a 10,1) | 3,2 (−3,5 a 10,3) | 2,3 (−4,5 a 9,2) |
+| Dasyprocta fuliginosa | g_com | sim | 0,6 (−6,8 a 8,2) | 1,3 (−6,5 a 9,1) | −0,3 (−7,9 a 7,5) |
+| Myoprocta pratti | g_com | sim | −2,6 (−13,9 a 9,6) | −1,9 (−13,3 a 10,4) | −3,4 (−14,6 a 8,8) |
+| Alouatta macconnelli | g_com | sim | −2,9 (−11,1 a 6,0) | 4,5 (−8,4 a 18,9) | −5,5 (−14,7 a 4,2) |
+| Lagothrix lagothricha | g_sem | não | 0,0 (−3,6 a 3,6) | 1,3 (−5,6 a 8,7) | −1,5 (−5,8 a 2,7) |
+| Leontocebus weddelli | g_sem | não | −1,4 (−5,6 a 3,1) | 4,8 (−3,6 a 13,5) | −1,8 (−6,9 a 3,3) |
+| Saimiri ustus | g_sem | não | −0,2 (−6,7 a 6,8) | −1,8 (−11,5 a 8,4) | −4,1 (−11,9 a 4,2) |
+| Microsciurus flaviventer | g_com | não | −6,2 (−17,3 a 5,6) | −7,8 (−19,0 a 4,3) | −7,5 (−18,7 a 4,4) |
+
+- Nenhuma tendência média conclusiva entre as 9 espécies adicionais.
+- Por UC (só com inclinação mantida e UC classificável): nenhuma UC com
+  evidência de declínio ou aumento no modelo principal.
+- Contagens parciais: o mesmo artefato dos primatas originais aparece em
+  Leontocebus (parciais de ~14% para ~52%; tamanho censurado +6,3 %/ano) e
+  Alouatta (+7,7 %/ano), o que faz "indivíduos com censura" subir enquanto
+  grupos caem.
+- Convergência: modelos principais com Rhat ≤ 1,01, exceto Microsciurus
+  (g_com: 130 divergências, Rhat 1,02, BFMI 0,19). Com 91 grupos, o efeito
+  UC-ano não é bem identificado; g_sem (convergido) dá −4,8 (−13,0 a 4,3),
+  mesma conclusão. Reportar Microsciurus como indicativo.
+- Lagothrix: 6 das 14 UCs da tabela de ocorrência sem nenhuma detecção.
+- Correção de método (φ ajustado): em D. iacki o p_loo do g_sem (137,5)
+  superou o número de UC-anos (81) e o φ ajustado saiu negativo (−7,8),
+  levando à escolha errada do g_sem (−8,1 %/ano). O 05 passou a tratar
+  p_eff ≥ n como sobredispersão extrema (φ = Inf → g_com). φ bruto do g_sem
+  = 5,5 e LOO favorece o g_com por 228 pontos, o que confirma a escolha.
+  Nenhuma outra espécie tinha p_eff ≥ n.
