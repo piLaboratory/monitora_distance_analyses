@@ -132,8 +132,13 @@ dispersao <- function(fit, draws = 1000, p_eff = 1) {
     esp  <- rowMeans(lam * pdet)
     obs  <- rowSums(y_ua)
     pearson <- sum((obs - esp)^2 / esp)
+    ## Graus de liberdade restantes. Se p_eff >= n (modelo com quase tantos
+    ## parametros efetivos quanto UC-anos), o phi ajustado nao e definido e
+    ## daria negativo; tratamos como sobredispersao extrema (Inf), o que
+    ## leva ao g_com.
+    gl <- length(obs) - p_eff
     c(phi = pearson / (length(obs) - 1),
-      phi_aj = pearson / (length(obs) - p_eff))
+      phi_aj = if (gl > 0) pearson / gl else Inf)
 }
 
 ## Numero efetivo de parametros (p_loo) para ajustar o phi
