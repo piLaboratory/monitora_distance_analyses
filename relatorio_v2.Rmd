@@ -42,6 +42,10 @@ salva <- function(g, nome, w = 8, h = 6) {
     g
 }
 cores_ev <- c(declinio = "#C0392B", aumento = "#2471A3", inconclusivo = "grey45")
+## Rotulos com acento para tabelas e legendas (os csv mantem os codigos sem acento)
+rot_ev <- c(declinio = "declínio", aumento = "aumento", inconclusivo = "inconclusivo",
+            "nao classificavel" = "não classificável", "sem inclinacao por UC" = "sem inclinação por UC")
+ev_txt <- function(x) unname(rot_ev[x])
 
 t1 <- le("T1_modelos_selecionados.csv")
 s1 <- le("S1_amostragem.csv")
@@ -269,6 +273,7 @@ t1 |>
 ```
 
 - Coeficiente de distância com IC acima de zero (vies de tamanho) em `r sum(t1$coef_distancia_ic_inf > 0)` espécies: `r paste(abrev(t1$especie[t1$coef_distancia_ic_inf > 0]), collapse = ", ")`.
+- Coeficiente de distância com IC abaixo de zero (grupos maiores registrados mais perto): `r x <- abrev(t1$especie[t1$coef_distancia_ic_sup < 0]); if (length(x)) paste(x, collapse = ", ") else "nenhuma"`.`r if ("Tapirus terrestris" %in% t1$especie[t1$coef_distancia_ic_sup < 0]) " Em *Tapirus terrestris* (poucos avistamentos), pode refletir fêmeas com filhote, mais próximas da trilha ou mais fáceis de ver de perto; é um resultado a interpretar com cautela." else ""`
 - Parâmetros e convergência dos modelos de tamanho: Tabelas S2 e S6.
 
 ## Sobredispersão: por que contar grupos
@@ -332,16 +337,13 @@ t2 |>
 dd <- t2 |>
     left_join(select(s1, especie, grupos_detectados), by = "especie") |>
     mutate(p = p_deteccao_2025_media,
-           classe = cut(p, c(0, 0.5, 0.75, 1), c("baixa", "média", "alta"), include.lowest = TRUE),
            sigma_W = sigma_m_2025_media / truncagem_m,
            largura_rel = (sigma_m_2025_ic_sup - sigma_m_2025_ic_inf) / sigma_m_2025_media)
 ext <- function(v, f) dd$especie[f(dd[[v]]) == dd[[v]]][1]
-cl <- split(abrev(dd$especie), dd$classe)
 rho <- cor(dd$largura_rel, dd$grupos_detectados, method = "spearman")
 ```
 
 - σ (2025) variou de `r num(min(dd$sigma_m_2025_media))` m (*`r ext("sigma_m_2025_media", min)`*) a `r num(max(dd$sigma_m_2025_media))` m (*`r ext("sigma_m_2025_media", max)`*); ESW de `r num(min(dd$ESW_m_2025_media))` a `r num(max(dd$ESW_m_2025_media))` m; p de `r num(min(dd$p), 2)` (*`r ext("p", min)`*) a `r num(max(dd$p), 2)` (*`r ext("p", max)`*).
-- Classes de detectabilidade (p em 2025): alta, p ≥ 0,75: `r paste(cl$alta, collapse = ", ")`; média, 0,5–0,75: `r paste(cl[["média"]], collapse = ", ")`; baixa, p < 0,5: `r paste(cl$baixa, collapse = ", ")`.
 - σ ≥ 80% da truncagem (detecção quase plana dentro da faixa; truncagem talvez apertada, ou espécie muito visível): `r x <- abrev(dd$especie[dd$sigma_W >= 0.8]); if (length(x)) paste(x, collapse = ", ") else "nenhuma espécie"`.
 - Largura relativa do IC de σ × número de grupos detectados: correlação de Spearman = `r num(rho, 2)` (esperado: negativa, intervalos mais largos com menos dados).
 - Pontos para discutir: as diferenças de σ fazem sentido pelo tamanho do animal, tamanho do grupo, comportamento (arborícola, terrestre, críptico, fugidio) e vegetação? Grupos grandes e barulhentos tendem a ser detectados mais longe.
@@ -367,21 +369,32 @@ t3w |>
 
 ```{r f1, fig.height = 7}
 d3 <- t3 |>
-    filter(!startsWith(componente, "tamanho")) |>
-    mutate(componente = factor(componente, c("grupos", "individuos", "individuos_sc"),
-                               c("Grupos", "Indivíduos (censura)", "Indivíduos (sem censura)")),
+    filter(componente %in% c("grupos", "individuos_sc")) |>
+    mutate(componente = factor(componente, c("grupos", "individuos_sc"),
+                               c("Grupos", "Indivíduos (sem censura)")),
            especie = fct_reorder(abrev(especie), media, .fun = max))
 g1 <- ggplot(d3, aes(x = media, y = especie, colour = componente)) +
     geom_pointrange(aes(xmin = ic_inf, xmax = ic_sup),
                     position = position_dodge(width = 0.6), size = 0.3) +
     scale_x_log10() +
-    scale_colour_manual(values = c("black", "#E67E22", "#16A085")) +
+    scale_colour_manual(values = c("black", "#16A085")) +
     labs(x = "Densidade média 2014–2025 (por km², escala log)", y = NULL, colour = NULL) +
     theme_bw() + theme(legend.position = "top", axis.text.y = element_text(face = "italic"))
 salva(g1, "F1_densidade_media.png", h = 7)
 ```
 
-**Figura 1.** Densidade média por espécie (UC típica, IC 95%), em grupos e em indivíduos, com o tamanho de grupo estimado com e sem as contagens parciais.
+**Figura 1.** Densidade média por espécie (UC típica, IC 95%), em grupos e em indivíduos. Indivíduos = grupos × tamanho médio estimado só com as contagens totais (estimativa conservadora; a versão com censura está na Tabela 3).
+
+```{r razao-censura}
+rz <- t3 |>
+    filter(componente %in% c("tamanho", "tamanho_sc")) |>
+    select(especie, componente, media) |>
+    pivot_wider(names_from = componente, values_from = media) |>
+    mutate(razao = tamanho / tamanho_sc) |>
+    arrange(desc(razao))
+```
+
+- O tamanho médio estimado com censura supera o sem censura em até `r num(max(rz$razao), 1)` vezes (*`r rz$especie[1]`*); acima de 2 vezes em `r paste0("*", abrev(rz$especie[rz$razao > 2]), "*", collapse = ", ")`. Como a fração de contagens parciais cresceu no período (Tabela S8), a censura atribui a esses grupos tamanhos grandes que não são observados nas contagens totais. Por isso a densidade de indivíduos "sem censura" é a recomendada; a "com censura" é um limite superior.
 
 ```{r f1b, fig.height = 9}
 s9 <- le("S9_densidade_por_ano.csv") |> filter(componente %in% c("grupos", "individuos_sc"))
@@ -419,7 +432,7 @@ t4w |>
     transmute(Espécie = especie,
               `Grupos (%/ano)` = grupos,
               `P(declínio)` = num(P_declinio, 3),
-              Evidência = evidencia,
+              Evidência = ev_txt(evidencia),
               `Indivíduos (censura)` = individuos,
               `Indivíduos (sem censura)` = individuos_sc,
               `Grupos, outro modelo` = alt) |>
@@ -438,7 +451,7 @@ g2 <- ggplot(d4, aes(x = media, y = especie, colour = evidencia, shape = compone
     geom_vline(xintercept = 0, linetype = 2) +
     geom_pointrange(aes(xmin = ic_inf, xmax = ic_sup),
                     position = position_dodge(width = 0.6), size = 0.3) +
-    scale_colour_manual(values = cores_ev, drop = FALSE) +
+    scale_colour_manual(values = cores_ev, labels = rot_ev, drop = FALSE) +
     scale_shape_manual(values = c(16, 1)) +
     labs(x = "Tendência média (%/ano, IC 95%)", y = NULL, colour = "Evidência", shape = NULL) +
     theme_bw() + theme(legend.position = "top", legend.box = "vertical",
@@ -482,7 +495,7 @@ g3 <- ggplot(d5, aes(x = media, y = rotulo, colour = evidencia)) +
     geom_pointrange(aes(xmin = ic_inf, xmax = ic_sup), size = 0.2) +
     facet_wrap(~ especie, scales = "free_y", ncol = 2) +
     scale_y_discrete(labels = function(x) sub(".*___", "", x)) +
-    scale_colour_manual(values = cores_ev, drop = FALSE) +
+    scale_colour_manual(values = cores_ev, labels = rot_ev, drop = FALSE) +
     labs(x = "Tendência de grupos (%/ano, IC 95%)", y = NULL, colour = "Evidência") +
     theme_bw() + theme(legend.position = "top", strip.text = element_text(face = "italic"),
                        axis.text.y = element_text(size = 6))
@@ -496,7 +509,7 @@ t5 |>
     filter(classificavel, evidencia != "inconclusivo") |>
     transmute(Espécie = especie, UC = uc, `Grupos` = n_grupos,
               `Anos com detecção` = anos_com_deteccao,
-              `%/ano (IC 95%)` = ic(media, ic_inf, ic_sup), Evidência = evidencia) |>
+              `%/ano (IC 95%)` = ic(media, ic_inf, ic_sup), Evidência = ev_txt(evidencia)) |>
     tab(caption = "Tabela 5b. UCs classificáveis com evidência de declínio ou aumento (grupos).")
 ```
 
