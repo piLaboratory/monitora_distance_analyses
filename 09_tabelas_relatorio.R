@@ -24,6 +24,7 @@
 ##   S9_densidade_por_ano.csv      densidade prevista em cada ano (UC tipica)
 ##   S10_ucs_por_ano.csv           UCs amostradas e com deteccao em cada ano
 ##   S11_densidade_observada.csv   densidade observada aproximada por UC-ano
+##   T4b_tendencia_uc_ao_acaso.csv tendencia e P(declinio) numa UC tomada ao acaso
 ##
 ## Retomavel: os calculos de cada especie ficam em relatorio_<versao>/cache/;
 ## para refazer uma especie, apague o arquivo dela no cache.
@@ -261,6 +262,57 @@ for (especie in especies) {
     saveRDS(calcula_especie(), arq_cache)
 }
 
+## Tendencia numa UC tomada ao acaso (cache separado, para nao refazer o resto).
+## Diferente da UC tipica (efeitos aleatorios = 0), aqui a inclinacao da UC e
+## sorteada da distribuicao estimada entre UCs, em cada sorteio da posterior:
+##   grupos:     inclinacao = beta_ano + b, b ~ Normal(0, sigma[ano_c|cnuc])
+##               (zero nas especies sem inclinacao por UC)
+##   tamanho:    intercepto e inclinacao da UC nova sorteados no brms
+##               (sample_new_levels = "gaussian")
+## O efeito UC-ano do g_com (flutuacao de cada ano) nao entra: a pergunta e a
+## tendencia da UC, e nao a variacao de um ano especifico.
+tend_uc_nova <- function() {
+    esc <- filter(escolha, especie == .env$especie)
+    estrutura <- if (esc$inclinacao_uc) "incl" else "noincl"
+    fit <- readRDS(arq_modelo(especie, esc$modelo_principal, estrutura,
+                              iter_final(especie, esc$modelo_principal)))
+    pref <- file.path(dir_ajustes, gsub(" ", "_", especie))
+    m_tam <- list(individuos    = readRDS(paste0(pref, "_tam_dist.rds")),
+                  individuos_sc = readRDS(paste0(pref, "_tam_dist_sc.rds")))
+    R_anos <- ano_max - ano_min
+    bs <- ubms::extract(fit, "beta_state")[[1]]
+    g1 <- bs[, match("ano_c", ubms:::beta_names(fit["state"]))]
+    sig_incl <- if (esc$inclinacao_uc) {
+        ss <- ubms::extract(fit, "sigma_state")[[1]]
+        ss[, grep("^sigma \\[ano_c\\|cnuc\\]", ubms:::sigma_names(fit["state"]))]
+    } else rep(0, length(g1))
+    dist_c0 <- (0 - mean(dados_tam$dist.m)) / sd(dados_tam$dist.m)
+    nd <- tibble(cnuc = "UC_nova", ano_c = c(0, 1), dist_c = dist_c0)
+    eta <- map(m_tam, ~ brms::posterior_linpred(.x, newdata = nd, allow_new_levels = TRUE,
+                                                sample_new_levels = "gaussian"))
+    set.seed(2)
+    nd_s <- min(length(g1), map_int(eta, nrow))
+    ig <- sample(length(g1), nd_s)
+    it <- map(eta, ~ sample(nrow(.x), nd_s))
+    incl_nova <- g1[ig] + rnorm(nd_s, 0, sig_incl[ig])     ## inclinacao da UC nova (periodo)
+    razao_tam <- imap(eta, ~ (1 + exp(.x[it[[.y]], 2])) / (1 + exp(.x[it[[.y]], 1])))
+    pct <- function(razao) 100 * (razao^(1 / R_anos) - 1)
+    comp <- list(grupos        = pct(exp(incl_nova)),
+                 individuos    = pct(exp(incl_nova) * razao_tam$individuos),
+                 individuos_sc = pct(exp(incl_nova) * razao_tam$individuos_sc))
+    imap_dfr(comp, ~ tibble(especie = especie, modelo = esc$modelo_principal,
+                            inclinacao_uc = esc$inclinacao_uc, componente = .y,
+                            media = mean(.x), ic_inf = unname(quantile(.x, 0.025)),
+                            ic_sup = unname(quantile(.x, 0.975)), P_declinio = mean(.x < 0)))
+}
+for (especie in especies) {
+    arq_nova <- file.path(dir_cache, paste0(gsub(" ", "_", especie), "_uc_nova.rds"))
+    if (file.exists(arq_nova)) next
+    message(sprintf("09 (UC ao acaso): %s", especie))
+    source("04_prepara_dados_uc_ano.R")
+    saveRDS(tend_uc_nova(), arq_nova)
+}
+
 ## Series por UC-ano (so dados; nao usa os modelos). Cache separado, para nao
 ## refazer os calculos dos modelos quando so esta parte muda.
 for (especie in especies) {
@@ -398,5 +450,9 @@ grava(comparacao |>
           select(-modelo_principal),
       "S7_comparacao_g_sem_g_com.csv")
 grava(junta("s8"), "S8_contagens_parciais.csv")
+
+## T4b. Tendencia numa UC tomada ao acaso
+grava(map_dfr(especies, ~ readRDS(file.path(dir_cache, paste0(gsub(" ", "_", .x), "_uc_nova.rds")))),
+      "T4b_tendencia_uc_ao_acaso.csv")
 
 message("09: tabelas gravadas em ", dir_tab)

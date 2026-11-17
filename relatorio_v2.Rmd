@@ -566,6 +566,39 @@ salva(g2, "F2_tendencia_media.png", h = 7)
 - IC de grupos incluindo zero, mas P(declínio) ≥ 0,90: `r d <- filter(t4w, evidencia == "inconclusivo", P_declinio >= 0.9); paste0("*", d$especie, "*", collapse = ", ")`.
 - Indivíduos não conservador × conservador: nas espécies gregárias com aumento das contagens parciais (primatas, *Dicotyles*, *Nasua*), a versão não conservadora dá tendências mais altas, porque o tamanho censurado cresce com a fração de parciais (Tabela S8). Recomenda-se interpretar grupos e indivíduos (conservador).
 
+### Tendência numa UC tomada ao acaso
+
+A Tabela 4 descreve a **UC típica** (efeitos aleatórios iguais a zero), que corresponde à mediana das UCs. A Tabela 4b responde a outra pergunta: **numa UC tomada ao acaso** entre as que a espécie poderia ocupar, qual a tendência esperada e qual a probabilidade de declínio? Para isso, a variação entre UCs entra no cálculo:
+
+- Em cada sorteio da posterior, sorteia-se a inclinação de uma UC nova: efeito fixo de ano + um desvio sorteado da Normal(0, `sigma [ano_c|cnuc]`). Nas espécies sem inclinação por UC, esse desvio é zero e a tendência de grupos coincide com a da UC típica.
+- No modelo de tamanho, sorteiam-se também o intercepto e a inclinação da UC nova, da distribuição estimada entre UCs.
+- O efeito UC-ano do g_com (flutuação de cada ano) não entra: a pergunta é a tendência da UC, e não a variação de um ano específico.
+- Interpretação: P(declínio) aqui é a probabilidade de que uma UC qualquer esteja em declínio; sob o modelo, é também a fração esperada de UCs em declínio. Como incorpora a variação entre UCs, os intervalos são mais largos que os da UC típica e as probabilidades tendem a ficar mais próximas de 0,5 quando as UCs têm tendências diferentes entre si.
+
+```{r t4b}
+t4b <- le("T4b_tendencia_uc_ao_acaso.csv")
+t4b |>
+    mutate(txt = ic(media, ic_inf, ic_sup)) |>
+    select(especie, inclinacao_uc, componente, txt, P_declinio) |>
+    pivot_wider(names_from = componente, values_from = c(txt, P_declinio)) |>
+    left_join(filter(t4p, componente == "grupos") |> select(especie, P_tipica = P_declinio),
+              by = "especie") |>
+    arrange(desc(P_declinio_grupos)) |>
+    transmute(Espécie = especie,
+              `Inclinação por UC` = if_else(inclinacao_uc, "sim", "não"),
+              `Grupos (%/ano)` = txt_grupos,
+              `P(declínio), grupos` = num(P_declinio_grupos, 3),
+              `Indivíduos, não conservador (%/ano)` = txt_individuos,
+              `P(declínio), ind. não conservador` = num(P_declinio_individuos, 3),
+              `Indivíduos, conservador (%/ano)` = txt_individuos_sc,
+              `P(declínio), ind. conservador` = num(P_declinio_individuos_sc, 3),
+              `P(declínio), grupos, UC típica` = num(P_tipica, 3)) |>
+    tab(caption = "Tabela 4b. Tendência numa UC tomada ao acaso, em % ao ano (média e IC 95% da distribuição preditiva), e probabilidade de declínio. Inclinação por UC: se o modelo de grupos estima a variação da tendência entre UCs (se 'não', a tendência de grupos é a mesma da UC típica). Grupos: 100·(exp((β + b)/11) − 1), com β o efeito fixo de ano e b o desvio sorteado de uma UC nova. Indivíduos, não conservador e conservador: tendência de grupos × razão 2025/2014 do tamanho médio numa UC nova, com o modelo de tamanho com censura e só com contagens totais, respectivamente. P(declínio): fração dos sorteios com tendência negativa, isto é, probabilidade de que uma UC tomada ao acaso esteja em declínio. P(declínio), grupos, UC típica: o mesmo para a UC típica (Tabela 4), para comparação. Ordenada por P(declínio) de grupos.")
+```
+
+- Espécies com P(declínio) de grupos ≥ 0,90 numa UC ao acaso: `r d <- t4b |> filter(componente == "grupos", P_declinio >= 0.9); if (nrow(d)) paste0("*", d$especie, "* (", num(d$P_declinio, 2), ")", collapse = ", ") else "nenhuma"`.
+- Onde a variação entre UCs é grande, a probabilidade numa UC ao acaso fica bem abaixo da da UC típica: o declínio médio pode ser claro, mas parte das UCs pode estar estável ou aumentando (ver Tendência por UC).
+
 ## Tendência por UC
 
 ```{r t5}
