@@ -165,7 +165,7 @@ Scripts: `05_ajusta_grupos.R` (grupos), `06_ajusta_tamanho.R` (tamanho), `07_com
 - *Binomial negativa*: os tamanhos são muito mais variáveis que Poisson (forma estimada entre ~0,2 e ~3).
 - *`ano_c` e `(ano_c || cnuc)`*: o tamanho médio pode mudar ao longo do tempo e entre UCs; essa mudança entra na tendência de indivíduos.
 - *`dist_c` (correção do vies de tamanho)*: grupos maiores tendem a ser detectados mais longe; sem correção, o tamanho médio fica superestimado. O tamanho é previsto **a distância zero**, onde a detecção não depende do tamanho.
-- *Modelo conservador (sem censura)*: o mesmo modelo, sem `cens()`, só com as contagens totais. *Justificativa*: a fração de contagens parciais aumentou ao longo do tempo (Tabela S8), provavelmente por mudança na forma de registrar, e o modelo censurado passa a atribuir tamanhos grandes a esses grupos, gerando tendências positivas espúrias no tamanho. O modelo sem censura é chamado de **conservador** neste relatório.
+- *Modelo conservador (sem censura)*, por oposição ao **não conservador** (com censura): o mesmo modelo, sem `cens()`, só com as contagens totais. *Justificativa*: a fração de contagens parciais aumentou ao longo do tempo (Tabela S8), provavelmente por mudança na forma de registrar, e o modelo censurado passa a atribuir tamanhos grandes a esses grupos, gerando tendências positivas espúrias no tamanho. O modelo sem censura é chamado de **conservador** neste relatório.
 
 ## Combinação: densidade e tendência de indivíduos
 
@@ -173,7 +173,7 @@ Scripts: `05_ajusta_grupos.R` (grupos), `06_ajusta_tamanho.R` (tamanho), `07_com
 - Os dois modelos foram ajustados separadamente; os sorteios são pareados ao acaso (mesmo número de sorteios), o que propaga a incerteza dos dois.
 - Tendência (%/ano) = 100·[(D(2025)/D(2014))^(1/11) − 1]. Pela razão entre o último e o primeiro ano, porque o tamanho médio (1 + exp(η)) não é log-linear no ano.
 - "UC típica": efeitos aleatórios iguais a zero (corresponde à mediana entre UCs, não à média).
-- Três componentes reportados: **grupos** (resultado principal), **indivíduos com censura** e **indivíduos conservador** (tamanho estimado só com contagens totais).
+- Três componentes reportados: **grupos** (resultado principal), **indivíduos não conservador** (tamanho estimado com as contagens parciais censuradas) e **indivíduos conservador** (tamanho estimado só com contagens totais).
 
 **O que a tendência representa quando faltam anos**
 
@@ -425,8 +425,7 @@ rho <- cor(dd$largura_rel, dd$grupos_detectados, method = "spearman")
 **O que a Tabela 3 mostra**
 
 - **Densidade de grupos**: número de grupos (avistamentos independentes; um animal solitário é um grupo de 1) por km², estimado diretamente pelo modelo de amostragem por distância, já corrigido pela detecção imperfeita.
-- **Tamanho médio**: número médio de indivíduos por grupo, estimado pelo modelo de tamanho a distância zero (sem o viés de grupos grandes serem vistos mais longe). Há duas versões: **com censura** (usa as contagens parciais como limite inferior) e **conservador** (só contagens totais).
-- **Densidade de indivíduos** = densidade de grupos × tamanho médio, calculada em cada sorteio da posterior (a incerteza dos dois modelos é propagada). Também em duas versões, com censura e conservadora.
+- **Densidade de indivíduos** = densidade de grupos × tamanho médio do grupo (Tabela 3b), calculada em cada sorteio da posterior (a incerteza dos dois modelos é propagada). Há duas versões: **não conservadora** (tamanho estimado com as contagens parciais como censuradas) e **conservadora** (tamanho estimado só com as contagens totais).
 - Todos os valores são para a **UC típica** (efeitos aleatórios iguais a zero; corresponde à mediana entre UCs, não à média; as UCs diferem muito em densidade, ver `sigma [1|cnuc]` na Tabela S3) e são a **média dos anos 2014–2025** da densidade prevista em cada ano.
 - Densidades por km² (o modelo estima por ha; multiplicadas por 100).
 
@@ -439,12 +438,34 @@ t3w <- t3 |>
 t3w |>
     transmute(Espécie = especie,
               `Grupos/km²` = grupos,
-              `Tamanho médio (com censura)` = tamanho,
-              `Indivíduos/km² (com censura)` = individuos,
-              `Tamanho médio (conservador)` = tamanho_sc,
+              `Indivíduos/km² (não conservador)` = individuos,
               `Indivíduos/km² (conservador)` = individuos_sc) |>
-    tab(caption = "Tabela 3. Densidade média em 2014–2025 numa UC típica (média e IC 95%). Grupos/km²: densidade de grupos, do modelo de distância. Tamanho médio (com censura): indivíduos por grupo, a distância zero, do modelo de tamanho que usa as contagens parciais como censuradas. Indivíduos/km² (com censura): grupos/km² × tamanho médio com censura. Tamanho médio (conservador) e Indivíduos/km² (conservador): o mesmo, com o modelo de tamanho ajustado só com contagens totais (excluídos registros incompletos e anômalos); estimativa recomendada. Valores são médias, entre os anos, da densidade prevista em cada ano; IC 95% da posterior.")
+    tab(caption = "Tabela 3. Densidade média em 2014–2025 numa UC típica (média e IC 95%). Grupos/km²: densidade de grupos, do modelo de distância. Indivíduos/km² (não conservador): grupos/km² × tamanho médio do grupo estimado com as contagens parciais censuradas. Indivíduos/km² (conservador): grupos/km² × tamanho médio estimado só com contagens totais (excluídos registros incompletos e anômalos); estimativa recomendada. Valores são médias, entre os anos, da densidade prevista em cada ano; IC 95% da posterior. Tamanhos médios na Tabela 3b.")
 ```
+
+**Tamanho médio dos grupos**
+
+```{r t3b}
+t4tam <- le("T4_tendencia_media.csv") |>
+    filter(principal, componente %in% c("tamanho", "tamanho_sc")) |>
+    transmute(especie, componente = paste0("tend_", componente), txt = ic(media, ic_inf, ic_sup))
+t3w |>
+    select(especie, tamanho, tamanho_sc) |>
+    left_join(select(s1, especie, tam_medio_obs, avistamentos_modelo_tamanho, contagens_parciais),
+              by = "especie") |>
+    left_join(pivot_wider(t4tam, names_from = componente, values_from = txt), by = "especie") |>
+    transmute(Espécie = especie,
+              `Avistamentos` = avistamentos_modelo_tamanho,
+              `% parciais` = num(100 * contagens_parciais / avistamentos_modelo_tamanho, 1),
+              `Média observada` = num(tam_medio_obs, 1),
+              `Estimado, conservador` = tamanho_sc,
+              `Tendência, conservador (%/ano)` = tend_tamanho_sc,
+              `Estimado, não conservador` = tamanho,
+              `Tendência, não conservador (%/ano)` = tend_tamanho) |>
+    tab(caption = "Tabela 3b. Tamanho médio dos grupos (indivíduos por grupo). Avistamentos: avistamentos usados no modelo de tamanho. % parciais: porcentagem com contagem parcial. Média observada: média simples de n_animais nos avistamentos com contagem (excluídos anômalos; contagens parciais incluídas como registradas), sem correção. Estimado, conservador: tamanho médio previsto pelo modelo ajustado só com contagens totais, numa UC típica, a distância zero do transecto (corrige o viés de grupos maiores serem vistos mais longe), média de 2014–2025, com IC 95%. Tendência, conservador: variação do tamanho médio estimado, em % ao ano (razão 2025/2014), com IC 95%. Estimado e Tendência, não conservador: o mesmo, com o modelo que usa as contagens parciais como censuradas (limite inferior do tamanho).")
+```
+
+- O tamanho estimado a distância zero pode ser menor que a média observada, quando grupos maiores são detectados mais longe (coeficiente de distância positivo, Tabela 1b).
 
 ```{r f1, fig.height = 7}
 d3 <- t3 |>
@@ -462,7 +483,7 @@ g1 <- ggplot(d3, aes(x = media, y = especie, colour = componente)) +
 salva(g1, "F1_densidade_media.png", h = 7)
 ```
 
-**Figura 1.** Densidade média por espécie numa UC típica (média e IC 95%), em grupos e em indivíduos. Indivíduos (conservador) = grupos × tamanho médio estimado só com as contagens totais; a versão com censura está na Tabela 3.
+**Figura 1.** Densidade média por espécie numa UC típica (média e IC 95%), em grupos e em indivíduos. Indivíduos (conservador) = grupos × tamanho médio estimado só com as contagens totais; a versão não conservadora está na Tabela 3.
 
 ```{r razao-censura}
 rz <- t3 |>
@@ -473,7 +494,7 @@ rz <- t3 |>
     arrange(desc(razao))
 ```
 
-- O tamanho médio com censura supera o conservador em até `r num(max(rz$razao), 1)` vezes (*`r rz$especie[1]`*); acima de 2 vezes em `r paste0("*", abrev(rz$especie[rz$razao > 2]), "*", collapse = ", ")`. Como a fração de contagens parciais cresceu no período (Tabela S8), a censura atribui a esses grupos tamanhos grandes que não aparecem nas contagens totais. Por isso a densidade de indivíduos conservadora é a recomendada; a com censura é um limite superior.
+- O tamanho médio não conservador (com censura) supera o conservador em até `r num(max(rz$razao), 1)` vezes (*`r rz$especie[1]`*); acima de 2 vezes em `r paste0("*", abrev(rz$especie[rz$razao > 2]), "*", collapse = ", ")`. Como a fração de contagens parciais cresceu no período (Tabela S8), a censura atribui a esses grupos tamanhos grandes que não aparecem nas contagens totais. Por isso a densidade de indivíduos conservadora é a recomendada; a não conservadora é um limite superior.
 
 ```{r f1b, fig.height = 9}
 s9 <- le("S9_densidade_por_ano.csv") |> filter(componente %in% c("grupos", "individuos_sc"))
@@ -504,17 +525,20 @@ t4w <- t4p |>
     pivot_wider(names_from = componente, values_from = txt) |>
     left_join(filter(t4p, componente == "grupos") |>
                   select(especie, P_declinio, evidencia), by = "especie") |>
-    left_join(filter(t4, !principal, componente == "grupos") |>
-                  transmute(especie, alt = ic(media, ic_inf, ic_sup)), by = "especie") |>
+    left_join(filter(t4p, componente %in% c("individuos", "individuos_sc")) |>
+                  select(especie, componente, P_declinio) |>
+                  pivot_wider(names_from = componente, values_from = P_declinio,
+                              names_prefix = "P_"), by = "especie") |>
     arrange(desc(P_declinio))
 t4w |>
     transmute(Espécie = especie,
               `Grupos (%/ano)` = grupos,
-              `P(declínio)` = num(P_declinio, 3),
-              `Indivíduos, com censura (%/ano)` = individuos,
+              `P(declínio), grupos` = num(P_declinio, 3),
+              `Indivíduos, não conservador (%/ano)` = individuos,
+              `P(declínio), ind. não conservador` = num(P_individuos, 3),
               `Indivíduos, conservador (%/ano)` = individuos_sc,
-              `Grupos, outro modelo (%/ano)` = alt) |>
-    tab(caption = "Tabela 4. Tendência média por espécie numa UC típica, em % ao ano (média e IC 95%), modelo principal. Grupos: 100·(exp(β/11) − 1), com β o coeficiente de ano_c do modelo de densidade de grupos. P(declínio): fração dos sorteios da posterior com tendência de grupos negativa. Indivíduos, com censura: tendência de grupos × tamanho médio com censura, calculada pela razão entre 2025 e 2014. Indivíduos, conservador: o mesmo com o tamanho estimado só com contagens totais. Grupos, outro modelo: tendência de grupos no modelo não escolhido (g_sem ou g_com), como sensibilidade. Ordenada por P(declínio).")
+              `P(declínio), ind. conservador` = num(P_individuos_sc, 3)) |>
+    tab(caption = "Tabela 4. Tendência média por espécie numa UC típica, em % ao ano (média e IC 95%), modelo principal de grupos. Grupos: 100·(exp(β/11) − 1), com β o coeficiente de ano_c do modelo de densidade de grupos. Indivíduos, não conservador: tendência da densidade de indivíduos (grupos × tamanho médio estimado com as contagens parciais censuradas), calculada pela razão entre 2025 e 2014. Indivíduos, conservador: o mesmo, com o tamanho estimado só com contagens totais. P(declínio): fração dos sorteios da posterior com tendência negativa, para cada uma das três estimativas. A tendência de grupos no modelo não escolhido (sensibilidade) está na Tabela S7. Ordenada por P(declínio) de grupos.")
 ```
 
 ```{r f2, fig.height = 7}
@@ -540,7 +564,7 @@ salva(g2, "F2_tendencia_media.png", h = 7)
 - IC 95% de grupos inteiramente abaixo de zero: `r d <- filter(t4w, evidencia == "declinio"); if (nrow(d)) paste0("*", d$especie, "* (", d$grupos, ")", collapse = "; ") else "nenhuma"`.
 - IC 95% de grupos inteiramente acima de zero: `r d <- filter(t4w, evidencia == "aumento"); if (nrow(d)) paste0("*", d$especie, "*", collapse = ", ") else "nenhuma espécie"`.
 - IC de grupos incluindo zero, mas P(declínio) ≥ 0,90: `r d <- filter(t4w, evidencia == "inconclusivo", P_declinio >= 0.9); paste0("*", d$especie, "*", collapse = ", ")`.
-- Indivíduos com censura × conservador: nas espécies gregárias com aumento das contagens parciais (primatas, *Dicotyles*, *Nasua*), a versão com censura dá tendências mais altas, porque o tamanho censurado cresce com a fração de parciais (Tabela S8). Recomenda-se interpretar grupos e indivíduos (conservador).
+- Indivíduos não conservador × conservador: nas espécies gregárias com aumento das contagens parciais (primatas, *Dicotyles*, *Nasua*), a versão não conservadora dá tendências mais altas, porque o tamanho censurado cresce com a fração de parciais (Tabela S8). Recomenda-se interpretar grupos e indivíduos (conservador).
 
 ## Tendência por UC
 
@@ -615,12 +639,14 @@ s1 |>
 
 ```{r s2}
 le("S2_convergencia.csv") |>
-    transmute(Espécie = especie, Modelo = modelo, Parâmetros = grupo,
+    transmute(Espécie = especie,
+              Modelo = recode(modelo, "tamanho com censura" = "tamanho não conservador",
+                              "tamanho sem censura" = "tamanho conservador"), Parâmetros = grupo,
               `Cadeias × iter (aquec.)` = paste0(cadeias, " × ", iter, " (", aquecimento, ")"),
               adapt_delta = num(adapt_delta, 2),
               `Rhat máx.` = num(Rhat_max, 3), `n_eff mín.` = round(n_eff_min),
               Divergências = divergencias, `BFMI mín.` = num(BFMI_min, 2)) |>
-    tab(caption = "Tabela S2. Diagnóstico de convergência do modelo de grupos escolhido (g_sem ou g_com) e dos modelos de tamanho (com censura e sem censura), por grupo de parâmetros. Parâmetros: densidade (efeitos fixos; desvios dos efeitos aleatórios), detecção (efeitos fixos), tamanho (efeitos fixos; desvios; parâmetro de forma). Cadeias × iter (aquec.): número de cadeias, iterações por cadeia e, entre parênteses, iterações de aquecimento descartadas. adapt_delta: taxa de aceitação alvo do NUTS. Rhat máx.: maior Rhat no grupo (critério ≤ 1,01). n_eff mín.: menor tamanho efetivo de amostra no grupo (critério > 400; no brms, ESS bulk). Divergências: transições divergentes após o aquecimento, no ajuste todo. BFMI mín.: menor BFMI entre as cadeias, no ajuste todo (< 0,3 indica exploração ineficiente).")
+    tab(caption = "Tabela S2. Diagnóstico de convergência do modelo de grupos escolhido (g_sem ou g_com) e dos modelos de tamanho (não conservador, com censura; conservador, sem censura), por grupo de parâmetros. Parâmetros: densidade (efeitos fixos; desvios dos efeitos aleatórios), detecção (efeitos fixos), tamanho (efeitos fixos; desvios; parâmetro de forma). Cadeias × iter (aquec.): número de cadeias, iterações por cadeia e, entre parênteses, iterações de aquecimento descartadas. adapt_delta: taxa de aceitação alvo do NUTS. Rhat máx.: maior Rhat no grupo (critério ≤ 1,01). n_eff mín.: menor tamanho efetivo de amostra no grupo (critério > 400; no brms, ESS bulk). Divergências: transições divergentes após o aquecimento, no ajuste todo. BFMI mín.: menor BFMI entre as cadeias, no ajuste todo (< 0,3 indica exploração ineficiente).")
 ```
 
 ```{r s3}
@@ -651,10 +677,13 @@ le("S5_qualidade_ajuste.csv") |>
 
 ```{r s6}
 le("S6_parametros_tamanho.csv") |>
-    transmute(Espécie = especie, Modelo = modelo, n = n_avistamentos, Parâmetro = parametro,
+    transmute(Espécie = especie,
+              Modelo = recode(modelo, "com censura" = "não conservador (com censura)",
+                              "sem censura (so totais)" = "conservador (só totais)"),
+              n = n_avistamentos, Parâmetro = parametro,
               Estimativa = num(Estimate, 3), `IC 95%` = paste0(num(`l-95% CI`, 2), " a ", num(`u-95% CI`, 2)),
               Rhat = num(Rhat, 3), `ESS (bulk)` = round(Bulk_ESS)) |>
-    tab(caption = "Tabela S6. Parâmetros dos modelos de tamanho de grupo (binomial negativa em n − 1, ligação log). Modelo: com censura (contagens parciais censuradas à direita) ou sem censura (só contagens totais; conservador). n: avistamentos usados. Parâmetro: Intercept = log(tamanho médio − 1) em 2014, numa UC típica, à distância média; ano_c = variação no período; dist_c = efeito de um desvio-padrão de distância; sd(Intercept) | cnuc e sd(ano_c) | cnuc = desvios-padrão entre UCs; shape = parâmetro de forma da binomial negativa (quanto menor, mais variáveis os tamanhos). Estimativa: média posterior; IC 95%: quantis de 2,5% e 97,5%. Rhat e ESS (bulk): diagnósticos de convergência.")
+    tab(caption = "Tabela S6. Parâmetros dos modelos de tamanho de grupo (binomial negativa em n − 1, ligação log). Modelo: não conservador (contagens parciais censuradas à direita) ou conservador (só contagens totais, sem censura). n: avistamentos usados. Parâmetro: Intercept = log(tamanho médio − 1) em 2014, numa UC típica, à distância média; ano_c = variação no período; dist_c = efeito de um desvio-padrão de distância; sd(Intercept) | cnuc e sd(ano_c) | cnuc = desvios-padrão entre UCs; shape = parâmetro de forma da binomial negativa (quanto menor, mais variáveis os tamanhos). Estimativa: média posterior; IC 95%: quantis de 2,5% e 97,5%. Rhat e ESS (bulk): diagnósticos de convergência.")
 ```
 
 ```{r s7}
