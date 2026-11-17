@@ -21,9 +21,13 @@ conv_min_bfmi <- 0.2
 ## Escolha do modelo de grupos: g_com se o phi ajustado do g_sem passar disto
 limiar_phi <- 1.5
 
-## UC com tendencia propria classificada: minimo de grupos e de anos com deteccao
-crit_min_grupos <- 10
-crit_min_anos   <- 3
+## UC com tendencia propria classificada: minimo de grupos, de anos com deteccao
+## e de extensao da serie (ultimo - primeiro ano amostrado + 1). A extensao
+## evita classificar tendencias de UCs que entraram no monitoramento so no fim
+## do periodo (ex.: 2022-2025), cuja inclinacao vem de 3 ou 4 anos.
+crit_min_grupos   <- 10
+crit_min_anos     <- 3
+crit_min_extensao <- 5
 
 ## Iteracoes do amostrador (aquecimento = metade) para os modelos de grupos.
 ## O g_com precisa de mais sorteios para os desvios dos efeitos aleatorios.

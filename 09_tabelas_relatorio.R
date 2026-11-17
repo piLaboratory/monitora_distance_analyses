@@ -22,6 +22,8 @@
 ##   S7_comparacao_g_sem_g_com.csv os dois modelos de grupos lado a lado
 ##   S8_contagens_parciais.csv     fracao de contagens parciais por ano
 ##   S9_densidade_por_ano.csv      densidade prevista em cada ano (UC tipica)
+##   S10_ucs_por_ano.csv           UCs amostradas e com deteccao em cada ano
+##   S11_densidade_observada.csv   densidade observada aproximada por UC-ano
 ##
 ## Retomavel: os calculos de cada especie ficam em relatorio_<versao>/cache/;
 ## para refazer uma especie, apague o arquivo dela no cache.
@@ -259,6 +261,18 @@ for (especie in especies) {
     saveRDS(calcula_especie(), arq_cache)
 }
 
+## Series por UC-ano (so dados; nao usa os modelos). Cache separado, para nao
+## refazer os calculos dos modelos quando so esta parte muda.
+for (especie in especies) {
+    arq_serie <- file.path(dir_cache, paste0(gsub(" ", "_", especie), "_series.rds"))
+    if (file.exists(arq_serie)) next
+    message(sprintf("09 (series): %s", especie))
+    source("04_prepara_dados_uc_ano.R")
+    saveRDS(tibble(especie = especie, cnuc = as.character(ua$cnuc), ano = ua$ano,
+                   n_grupos = rowSums(y_ua), esforco_km = ua$tlength,
+                   truncagem_km = max(dist_breaks)), arq_serie)
+}
+
 ################################################################################
 ## Junta as especies e grava as tabelas
 ################################################################################
@@ -320,12 +334,52 @@ t4 <- tend |>
     arrange(especie, desc(principal), componente)
 grava(t4, "T4_tendencia_media.csv")
 
-## T5. Tendencia por UC (so especies com inclinacao por UC)
-tend_uc <- read_csv(file.path(dir_resultados, "todas_tend_uc.csv"), show_col_types = FALSE)
+## Series por UC-ano de todas as especies
+series <- map_dfr(especies, ~ readRDS(file.path(dir_cache, paste0(gsub(" ", "_", .x), "_series.rds"))))
+## ano_min/ano_max vem do 01 (via 04); se todo o cache ja existia, o 01 nao rodou
+if (!exists("ano_min")) { ano_min <- min(series$ano); ano_max <- max(series$ano) }
+serie_uc <- series |>
+    summarise(ano_ini = min(ano), ano_fim = max(ano), extensao = ano_fim - ano_ini + 1,
+              .by = c(especie, cnuc))
+
+## T5. Tendencia por UC (so especies com inclinacao por UC). A classificacao e
+## refeita aqui com o criterio atual do 00_config.R (inclui a extensao da serie),
+## sem precisar refazer o 07.
+tend_uc <- read_csv(file.path(dir_resultados, "todas_tend_uc.csv"), show_col_types = FALSE,
+                    col_types = cols(cnuc = col_character()))
 t5 <- tend_uc |>
     filter(principal, especie %in% escolha$especie[escolha$inclinacao_uc]) |>
+    select(-any_of(c("ano_ini", "ano_fim", "extensao"))) |>
+    left_join(serie_uc, by = c("especie", "cnuc")) |>
+    mutate(classificavel = n_grupos >= crit_min_grupos & anos_com_deteccao >= crit_min_anos &
+                           extensao >= crit_min_extensao,
+           evidencia = case_when(!classificavel ~ "nao classificavel",
+                                 ic_sup < 0 ~ "declinio", ic_inf > 0 ~ "aumento",
+                                 TRUE ~ "inconclusivo")) |>
     arrange(especie, componente, media)
 grava(t5, "T5_tendencia_uc.csv")
+
+## S10. UCs amostradas e com deteccao em cada ano
+grava(series |>
+          summarise(ucs_amostradas = n(), ucs_com_deteccao = sum(n_grupos > 0),
+                    grupos = sum(n_grupos), esforco_km = sum(esforco_km), .by = c(especie, ano)) |>
+          arrange(especie, ano),
+      "S10_ucs_por_ano.csv")
+
+## S11. Densidade observada aproximada por UC-ano (grupos/km2):
+##   n / (2 * w * L * p_ano), w = truncagem, L = km percorridos,
+##   p_ano = probabilidade de deteccao na faixa com sigma(ano) da media posterior
+##   dos coeficientes de deteccao do modelo principal (aproximacao plug-in).
+det_coef <- filter(junta("s3"), principal, submodelo == "det") |>
+    select(especie, parametro, mean) |>
+    pivot_wider(names_from = parametro, values_from = mean)
+grava(series |>
+          left_join(det_coef, by = "especie") |>
+          mutate(sigma_km = exp(`(Intercept)` + ano_c * (ano - ano_min) / (ano_max - ano_min)),
+                 p_ano = p_halfnorm(sigma_km, truncagem_km),
+                 dens_obs_km2 = n_grupos / (2 * truncagem_km * esforco_km * p_ano)) |>
+          select(especie, cnuc, ano, n_grupos, esforco_km, p_ano, dens_obs_km2),
+      "S11_densidade_observada.csv")
 
 ## Tabelas suplementares
 grava(junta("s1"), "S1_amostragem.csv")

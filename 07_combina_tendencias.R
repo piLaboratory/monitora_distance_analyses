@@ -152,7 +152,9 @@ dados_uc <-
     ua |>
     mutate(n_grp = rowSums(y_ua), cnuc = as.character(cnuc)) |>
     summarise(n_grupos = sum(n_grp), anos_amostrados = n(),
-              anos_com_deteccao = sum(n_grp > 0), .by = cnuc)
+              anos_com_deteccao = sum(n_grp > 0),
+              ano_ini = min(ano), ano_fim = max(ano),
+              extensao = ano_fim - ano_ini + 1, .by = cnuc)
 
 ## Classificacao por UC so quando ha inclinacao por UC no modelo e a UC atinge
 ## o criterio de dados; caso contrario a estimativa reflete a media geral.
@@ -160,7 +162,8 @@ tend_uc <-
     tend_uc |>
     left_join(dados_uc, by = "cnuc") |>
     mutate(classificavel = inclinacao_uc & n_grupos >= crit_min_grupos &
-                           anos_com_deteccao >= crit_min_anos,
+                           anos_com_deteccao >= crit_min_anos &
+                           extensao >= crit_min_extensao,
            evidencia = case_when(!inclinacao_uc ~ "sem inclinacao por UC",
                                  !classificavel ~ "nao classificavel",
                                  TRUE           ~ evidencia),
@@ -169,9 +172,9 @@ tend_uc <-
     relocate(especie, modelo, cnuc, uc, componente) |>
     arrange(componente, desc(classificavel), media)
 print(as.data.frame(filter(tend_uc, componente == "grupos")), digits = 3)
-message(sprintf("07 (%s): %d de %d UCs classificaveis (>= %d grupos em >= %d anos)%s",
+message(sprintf("07 (%s): %d de %d UCs classificaveis (>= %d grupos em >= %d anos, serie >= %d anos)%s",
                 especie, sum(tend_uc$classificavel[tend_uc$componente == "grupos"]),
-                length(ucs), crit_min_grupos, crit_min_anos,
+                length(ucs), crit_min_grupos, crit_min_anos, crit_min_extensao,
                 if (inclinacao_uc) "" else "; modelo sem inclinacao por UC"))
 
 ################################################################################
