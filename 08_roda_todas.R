@@ -11,6 +11,12 @@
 ##   mkdir -p logs
 ##   nohup Rscript 08_roda_todas.R > logs/08_geral.log 2>&1 &
 ## Log de cada especie: logs/<versao>_<Especie>.log
+##
+## So refazer as tendencias (07), sem reajustar nada (ex.: depois de mudar
+## nivel_ic_tendencia ou os criterios de UC classificavel no 00_config.R):
+##   REFAZ_TENDENCIAS=1 nohup Rscript 08_roda_todas.R > logs/08_tendencias.log 2>&1 &
+## Roda o 07 de todas as especies (modelo principal e sensibilidade), mesmo as
+## ja concluidas, e junta os resultados. Log: logs/<versao>_<Especie>_tendencias.log
 
 library(tidyverse)
 source(Sys.getenv("CONFIG_ANALISE", "00_config.R"))  ## configuracoes (00_config.R por padrao)
@@ -24,21 +30,28 @@ dir.create(dir_resultados, showWarnings = FALSE)
 concluido <- function(sp) file.exists(file.path(dir_resultados,
                                                 paste0(gsub(" ", "_", sp), "_concluido.txt")))
 
+refaz_tend <- Sys.getenv("REFAZ_TENDENCIAS") == "1"
 status <- tibble(especie = especies, situacao = NA_character_, minutos = NA_real_)
 for (i in seq_along(especies)) {
     sp <- especies[i]
-    if (concluido(sp)) { status$situacao[i] <- "ja concluida"; next }
+    if (refaz_tend && !concluido(sp)) { status$situacao[i] <- "nao concluida: rode sem REFAZ_TENDENCIAS"; next }
+    if (!refaz_tend && concluido(sp)) { status$situacao[i] <- "ja concluida"; next }
     message(sprintf("[%d/%d] %s ... (%s)", i, length(especies), sp, format(Sys.time(), "%H:%M")))
-    log <- file.path("logs", paste0(versao, "_", gsub(" ", "_", sp), ".log"))
+    log <- file.path("logs", paste0(versao, "_", gsub(" ", "_", sp),
+                                    if (refaz_tend) "_tendencias", ".log"))
     t0 <- Sys.time()
     saida <- system2(file.path(R.home("bin"), "Rscript"),
-                     c("roda_especie.R", shQuote(sp)), stdout = log, stderr = log)
+                     c("roda_especie.R", shQuote(sp), if (refaz_tend) "so_tendencias"),
+                     stdout = log, stderr = log)
     status$minutos[i]  <- as.numeric(difftime(Sys.time(), t0, units = "mins"))
     ## O sucesso e definido pelo arquivo _concluido.txt (gravado no fim do
     ## roda_especie.R). O R as vezes sofre um segfault ao encerrar, na
     ## liberacao dos objetos do Stan, depois de tudo gravado: isso nao e erro
     ## da analise e aparece como "ok (R falhou ao encerrar)".
-    status$situacao[i] <- if (!concluido(sp)) "ERRO (ver log)" else
+    ## (com REFAZ_TENDENCIAS o arquivo ja existia: conta so se foi regravado agora)
+    ok <- concluido(sp) && file.mtime(file.path(dir_resultados,
+              paste0(gsub(" ", "_", sp), "_concluido.txt"))) >= t0
+    status$situacao[i] <- if (!ok) "ERRO (ver log)" else
         if (saida == 0) "ok" else "ok (R falhou ao encerrar)"
     message(sprintf("      %s em %.1f min", status$situacao[i], status$minutos[i]))
 }

@@ -29,6 +29,14 @@ crit_min_grupos   <- 10
 crit_min_anos     <- 3
 crit_min_extensao <- 5
 
+## Nivel do intervalo de credibilidade das TENDENCIAS (coeficientes de ano:
+## tendencia media, por UC, numa UC ao acaso e do tamanho de grupo). Tambem
+## define a evidencia de declinio/aumento (IC abaixo/acima de zero).
+## Densidades, deteccao e tabelas de parametros usam IC 95%.
+## Mudar este valor exige refazer as tendencias (07) e o 09:
+##   REFAZ_TENDENCIAS=1 Rscript 08_roda_todas.R
+nivel_ic_tendencia <- 0.90
+
 ## Iteracoes do amostrador (aquecimento = metade) para os modelos de grupos.
 ## O g_com precisa de mais sorteios para os desvios dos efeitos aleatorios.
 iter_padrao <- c(g_sem = 4000, g_com = 6000)

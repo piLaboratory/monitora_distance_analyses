@@ -33,7 +33,11 @@ le <- function(nome) read_csv(file.path(dir_tab, nome), show_col_types = FALSE)
 num <- function(x, d = 1) unname(mapply(function(a, b) formatC(a, format = "f", digits = b, decimal.mark = ","),
                                          x, rep_len(d, length(x))))
 ic  <- function(m, a, b, d = 1) paste0(num(m, d), " (", num(a, d), " a ", num(b, d), ")")
-tab <- function(x, ...) knitr::kable(x, format.args = list(decimal.mark = ",", big.mark = "."), ...)
+## Nivel do IC das tendencias (00_config.R); nas legendas, "ICT" vira "IC 90%"
+ict <- paste0("IC ", 100 * nivel_ic_tendencia, "%")
+tab <- function(x, caption = NULL, ...)
+    knitr::kable(x, caption = if (!is.null(caption)) gsub("ICT", ict, caption, fixed = TRUE),
+                 format.args = list(decimal.mark = ",", big.mark = "."), ...)
 ## Nomes abreviados para os graficos
 abrev <- function(sp) sub("^(\\w)\\w+ ", "\\1. ", sp)
 ## Grava a figura em png (para uso fora do relatorio) e a mostra
@@ -229,7 +233,7 @@ Scripts: `05_ajusta_grupos.R` (grupos), `06_ajusta_tamanho.R` (tamanho), `07_com
 
 **4. Evidência de tendência**
 
-- **Tendência média**: corresponde ao **coeficiente do efeito fixo de ano** (`ano_c`) no submodelo de densidade de grupos, convertido para %/ano. Ela descreve a UC típica. Há evidência de declínio (ou aumento) quando o intervalo de credibilidade de 95% exclui zero. Também se relata P(declínio) = fração dos sorteios com tendência negativa.
+- **Tendência média**: corresponde ao **coeficiente do efeito fixo de ano** (`ano_c`) no submodelo de densidade de grupos, convertido para %/ano. Ela descreve a UC típica. Há evidência de declínio (ou aumento) quando o intervalo de credibilidade de `r 100 * nivel_ic_tendencia`% (IC `r 100 * nivel_ic_tendencia`%) exclui zero, isto é, quando P(declínio) (ou P(aumento)) passa de `r num((1 + nivel_ic_tendencia) / 2, 2)`. *Nível*: para tendências usa-se 90%, porque deixar de detectar um declínio real tem custo alto para a conservação; um IC de 95% seria mais exigente. O nível está em `nivel_ic_tendencia` (`00_config.R`) e vale para todos os coeficientes de ano (tendência média, por UC, numa UC ao acaso e do tamanho de grupo). Densidades, detecção e tabelas de parâmetros usam IC 95%. Também se relata P(declínio) = fração dos sorteios com tendência negativa.
 - **Tendência por UC**: corresponde à **inclinação da UC = efeito fixo de ano + desvio aleatório da UC** `(ano_c | cnuc)`, calculada em cada sorteio. Só existe nas espécies que mantiveram a inclinação por UC (critério 1) e só é classificada em UCs **classificáveis**: ≥ `r crit_min_grupos` grupos detectados, ≥ `r crit_min_anos` anos com detecção e série de ≥ `r crit_min_extensao` anos entre o primeiro e o último ano amostrado. *Justificativa*: com poucos dados ou série curta, a inclinação da UC é quase só a média geral encolhida, ou descreve poucos anos; classificá-la seria enganoso.
 
 **5. Qualidade de ajuste** (só relatada, não usada na escolha)
@@ -459,10 +463,10 @@ t3w |>
               `% parciais` = num(100 * contagens_parciais / avistamentos_modelo_tamanho, 1),
               `Média observada` = num(tam_medio_obs, 1),
               `Estimado, conservador` = tamanho_sc,
-              `Tendência, conservador (%/ano)` = tend_tamanho_sc,
+              !!paste0("Tendência, conservador (%/ano, ", ict, ")") := tend_tamanho_sc,
               `Estimado, não conservador` = tamanho,
-              `Tendência, não conservador (%/ano)` = tend_tamanho) |>
-    tab(caption = "Tabela 3b. Tamanho médio dos grupos (indivíduos por grupo). Avistamentos: avistamentos usados no modelo de tamanho. % parciais: porcentagem com contagem parcial. Média observada: média simples de n_animais nos avistamentos com contagem (excluídos anômalos; contagens parciais incluídas como registradas), sem correção. Estimado, conservador: tamanho médio previsto pelo modelo ajustado só com contagens totais, numa UC típica, a distância zero do transecto (corrige o viés de grupos maiores serem vistos mais longe), média de 2014–2025, com IC 95%. Tendência, conservador: variação do tamanho médio estimado, em % ao ano (razão 2025/2014), com IC 95%. Estimado e Tendência, não conservador: o mesmo, com o modelo que usa as contagens parciais como censuradas (limite inferior do tamanho).")
+              !!paste0("Tendência, não conservador (%/ano, ", ict, ")") := tend_tamanho) |>
+    tab(caption = "Tabela 3b. Tamanho médio dos grupos (indivíduos por grupo). Avistamentos: avistamentos usados no modelo de tamanho. % parciais: porcentagem com contagem parcial. Média observada: média simples de n_animais nos avistamentos com contagem (excluídos anômalos; contagens parciais incluídas como registradas), sem correção. Estimado, conservador: tamanho médio previsto pelo modelo ajustado só com contagens totais, numa UC típica, a distância zero do transecto (corrige o viés de grupos maiores serem vistos mais longe), média de 2014–2025, com IC 95%. Tendência, conservador: variação do tamanho médio estimado, em % ao ano (razão 2025/2014), com ICT. Estimado e Tendência, não conservador: o mesmo, com o modelo que usa as contagens parciais como censuradas (limite inferior do tamanho).")
 ```
 
 - O tamanho estimado a distância zero pode ser menor que a média observada, quando grupos maiores são detectados mais longe (coeficiente de distância positivo, Tabela 1b).
@@ -538,7 +542,7 @@ t4w |>
               `P(declínio), ind. não conservador` = num(P_individuos, 3),
               `Indivíduos, conservador (%/ano)` = individuos_sc,
               `P(declínio), ind. conservador` = num(P_individuos_sc, 3)) |>
-    tab(caption = "Tabela 4. Tendência média por espécie numa UC típica, em % ao ano (média e IC 95%), modelo principal de grupos. Grupos: 100·(exp(β/11) − 1), com β o coeficiente de ano_c do modelo de densidade de grupos. Indivíduos, não conservador: tendência da densidade de indivíduos (grupos × tamanho médio estimado com as contagens parciais censuradas), calculada pela razão entre 2025 e 2014. Indivíduos, conservador: o mesmo, com o tamanho estimado só com contagens totais. P(declínio): fração dos sorteios da posterior com tendência negativa, para cada uma das três estimativas. A tendência de grupos no modelo não escolhido (sensibilidade) está na Tabela S7. Ordenada por P(declínio) de grupos.")
+    tab(caption = "Tabela 4. Tendência média por espécie numa UC típica, em % ao ano (média e ICT), modelo principal de grupos. Grupos: 100·(exp(β/11) − 1), com β o coeficiente de ano_c do modelo de densidade de grupos. Indivíduos, não conservador: tendência da densidade de indivíduos (grupos × tamanho médio estimado com as contagens parciais censuradas), calculada pela razão entre 2025 e 2014. Indivíduos, conservador: o mesmo, com o tamanho estimado só com contagens totais. P(declínio): fração dos sorteios da posterior com tendência negativa, para cada uma das três estimativas. A tendência de grupos no modelo não escolhido (sensibilidade) está na Tabela S7. Ordenada por P(declínio) de grupos.")
 ```
 
 ```{r f2, fig.height = 7}
@@ -554,15 +558,15 @@ g2 <- ggplot(d4, aes(x = media, y = especie, colour = componente, shape = compon
                     position = position_dodge(width = 0.6), size = 0.3) +
     scale_colour_manual(values = c("black", "#16A085")) +
     scale_shape_manual(values = c(16, 1)) +
-    labs(x = "Tendência média (%/ano, IC 95%)", y = NULL, colour = NULL, shape = NULL) +
+    labs(x = paste0("Tendência média (%/ano, ", ict, ")"), y = NULL, colour = NULL, shape = NULL) +
     theme_bw() + theme(legend.position = "top", axis.text.y = element_text(face = "italic"))
 salva(g2, "F2_tendencia_media.png", h = 7)
 ```
 
-**Figura 2.** Tendência média por espécie numa UC típica (% ao ano, média e IC 95%), em grupos e em indivíduos (conservador). Espécies ordenadas pela tendência de grupos.
+**Figura 2.** Tendência média por espécie numa UC típica (% ao ano, média e `r ict`), em grupos e em indivíduos (conservador). Espécies ordenadas pela tendência de grupos.
 
-- IC 95% de grupos inteiramente abaixo de zero: `r d <- filter(t4w, evidencia == "declinio"); if (nrow(d)) paste0("*", d$especie, "* (", d$grupos, ")", collapse = "; ") else "nenhuma"`.
-- IC 95% de grupos inteiramente acima de zero: `r d <- filter(t4w, evidencia == "aumento"); if (nrow(d)) paste0("*", d$especie, "*", collapse = ", ") else "nenhuma espécie"`.
+- `r ict` de grupos inteiramente abaixo de zero: `r d <- filter(t4w, evidencia == "declinio"); if (nrow(d)) paste0("*", d$especie, "* (", d$grupos, ")", collapse = "; ") else "nenhuma"`.
+- `r ict` de grupos inteiramente acima de zero: `r d <- filter(t4w, evidencia == "aumento"); if (nrow(d)) paste0("*", d$especie, "*", collapse = ", ") else "nenhuma espécie"`.
 - IC de grupos incluindo zero, mas P(declínio) ≥ 0,90: `r d <- filter(t4w, evidencia == "inconclusivo", P_declinio >= 0.9); paste0("*", d$especie, "*", collapse = ", ")`.
 - Indivíduos não conservador × conservador: nas espécies gregárias com aumento das contagens parciais (primatas, *Dicotyles*, *Nasua*), a versão não conservadora dá tendências mais altas, porque o tamanho censurado cresce com a fração de parciais (Tabela S8). Recomenda-se interpretar grupos e indivíduos (conservador).
 
@@ -570,34 +574,36 @@ salva(g2, "F2_tendencia_media.png", h = 7)
 
 A Tabela 4 descreve a **UC típica** (efeitos aleatórios iguais a zero), que corresponde à mediana das UCs. A Tabela 4b responde a outra pergunta: **numa UC tomada ao acaso** entre as que a espécie poderia ocupar, qual a tendência esperada e qual a probabilidade de declínio? Para isso, a variação entre UCs entra no cálculo:
 
-- Em cada sorteio da posterior, sorteia-se a inclinação de uma UC nova: efeito fixo de ano + um desvio sorteado da Normal(0, `sigma [ano_c|cnuc]`). Nas espécies sem inclinação por UC, esse desvio é zero e a tendência de grupos coincide com a da UC típica.
+- Em cada sorteio da posterior, sorteia-se a inclinação de uma UC nova: efeito fixo de ano + um desvio sorteado da Normal(0, `sigma [ano_c|cnuc]`). Nas espécies sem inclinação por UC, esse desvio não existe e a tendência de grupos coincide com a da UC típica; por isso a Tabela 4b não a repete.
 - No modelo de tamanho, sorteiam-se também o intercepto e a inclinação da UC nova, da distribuição estimada entre UCs.
 - O efeito UC-ano do g_com (flutuação de cada ano) não entra: a pergunta é a tendência da UC, e não a variação de um ano específico.
 - Interpretação: P(declínio) aqui é a probabilidade de que uma UC qualquer esteja em declínio; sob o modelo, é também a fração esperada de UCs em declínio. Como incorpora a variação entre UCs, os intervalos são mais largos que os da UC típica e as probabilidades tendem a ficar mais próximas de 0,5 quando as UCs têm tendências diferentes entre si.
 
 ```{r t4b}
 t4b <- le("T4b_tendencia_uc_ao_acaso.csv")
+## Sem inclinacao por UC, a tendencia de grupos numa UC ao acaso e a da UC
+## tipica (Tabela 4): as colunas de grupos ficam com "—"
 t4b |>
     mutate(txt = ic(media, ic_inf, ic_sup)) |>
     select(especie, inclinacao_uc, componente, txt, P_declinio) |>
     pivot_wider(names_from = componente, values_from = c(txt, P_declinio)) |>
     left_join(filter(t4p, componente == "grupos") |> select(especie, P_tipica = P_declinio),
               by = "especie") |>
-    arrange(desc(P_declinio_grupos)) |>
-    transmute(Espécie = especie,
-              `Inclinação por UC` = if_else(inclinacao_uc, "sim", "não"),
-              `Grupos (%/ano)` = txt_grupos,
-              `P(declínio), grupos` = num(P_declinio_grupos, 3),
+    arrange(desc(inclinacao_uc), desc(P_declinio_grupos)) |>
+    transmute(Espécie = if_else(inclinacao_uc, especie, paste0(especie, " ¹")),
+              `Grupos (%/ano)` = if_else(inclinacao_uc, txt_grupos, "—"),
+              `P(declínio), grupos` = if_else(inclinacao_uc, num(P_declinio_grupos, 3), "—"),
               `Indivíduos, não conservador (%/ano)` = txt_individuos,
               `P(declínio), ind. não conservador` = num(P_declinio_individuos, 3),
               `Indivíduos, conservador (%/ano)` = txt_individuos_sc,
               `P(declínio), ind. conservador` = num(P_declinio_individuos_sc, 3),
               `P(declínio), grupos, UC típica` = num(P_tipica, 3)) |>
-    tab(caption = "Tabela 4b. Tendência numa UC tomada ao acaso, em % ao ano (média e IC 95% da distribuição preditiva), e probabilidade de declínio. Inclinação por UC: se o modelo de grupos estima a variação da tendência entre UCs (se 'não', a tendência de grupos é a mesma da UC típica). Grupos: 100·(exp((β + b)/11) − 1), com β o efeito fixo de ano e b o desvio sorteado de uma UC nova. Indivíduos, não conservador e conservador: tendência de grupos × razão 2025/2014 do tamanho médio numa UC nova, com o modelo de tamanho com censura e só com contagens totais, respectivamente. P(declínio): fração dos sorteios com tendência negativa, isto é, probabilidade de que uma UC tomada ao acaso esteja em declínio. P(declínio), grupos, UC típica: o mesmo para a UC típica (Tabela 4), para comparação. Ordenada por P(declínio) de grupos.")
+    tab(caption = "Tabela 4b. Tendência numa UC tomada ao acaso, em % ao ano (média e ICT da distribuição preditiva), e probabilidade de declínio. Grupos: 100·(exp((β + b)/11) − 1), com β o efeito fixo de ano e b o desvio sorteado de uma UC nova. Indivíduos, não conservador e conservador: tendência de grupos × razão 2025/2014 do tamanho médio numa UC nova, com o modelo de tamanho com censura e só com contagens totais, respectivamente. P(declínio): fração dos sorteios com tendência negativa, isto é, probabilidade de que uma UC tomada ao acaso esteja em declínio. P(declínio), grupos, UC típica: o mesmo para a UC típica (Tabela 4), para comparação. ¹ Espécie cujo modelo de grupos não tem inclinação por UC (retirada por falta de convergência): a tendência de grupos numa UC ao acaso é igual à da UC típica (Tabela 4) e por isso não é repetida (—). As colunas de indivíduos incluem só a variação entre UCs na tendência do tamanho de grupo; como a variação entre UCs na tendência de grupos não foi estimada, nessas espécies o IC é estreito demais e P(declínio) fica mais longe de 0,5 do que deveria. Ordenada por P(declínio) de grupos, primeiro as espécies com inclinação por UC.")
 ```
 
-- Espécies com P(declínio) de grupos ≥ 0,90 numa UC ao acaso: `r d <- t4b |> filter(componente == "grupos", P_declinio >= 0.9); if (nrow(d)) paste0("*", d$especie, "* (", num(d$P_declinio, 2), ")", collapse = ", ") else "nenhuma"`.
+- Espécies com P(declínio) de grupos ≥ 0,90 numa UC ao acaso: `r d <- t4b |> filter(componente == "grupos", inclinacao_uc, P_declinio >= 0.9); if (nrow(d)) paste0("*", d$especie, "* (", num(d$P_declinio, 2), ")", collapse = ", ") else "nenhuma"`.
 - Onde a variação entre UCs é grande, a probabilidade numa UC ao acaso fica bem abaixo da da UC típica: o declínio médio pode ser claro, mas parte das UCs pode estar estável ou aumentando (ver Tendência por UC).
+- Nas `r sum(!distinct(t4b, especie, inclinacao_uc)$inclinacao_uc)` espécies sem inclinação por UC (¹), a Tabela 4b informa só sobre indivíduos, e com a ressalva da nota: o modelo não diz que as UCs têm a mesma tendência de grupos; ele apenas não conseguiu estimar essa variação.
 
 ## Tendência por UC
 
@@ -617,7 +623,7 @@ t5 |>
     tab(caption = paste0("Tabela 5. Tendência de grupos por UC, nas espécies que mantiveram a inclinação por UC. UCs no modelo: UCs de ocorrência com esforço. UCs classificáveis: com ≥ ",
                          crit_min_grupos, " grupos detectados, ≥ ", crit_min_anos,
                          " anos com detecção e série de ≥ ", crit_min_extensao,
-                         " anos (do primeiro ao último ano amostrado). Excluídas só pela série curta: UCs que atingem os outros dois critérios, mas têm série mais curta. Declínio, Aumento e IC inclui zero: número de UCs classificáveis cujo IC 95% da tendência (efeito fixo de ano + inclinação aleatória da UC) está abaixo de zero, acima de zero ou inclui zero. Lista completa: relatorio_v2/tabelas/T5_tendencia_uc.csv."))
+                         " anos (do primeiro ao último ano amostrado). Excluídas só pela série curta: UCs que atingem os outros dois critérios, mas têm série mais curta. Declínio, Aumento e IC inclui zero: número de UCs classificáveis cujo ICT da tendência (efeito fixo de ano + inclinação aleatória da UC) está abaixo de zero, acima de zero ou inclui zero. Lista completa: relatorio_v2/tabelas/T5_tendencia_uc.csv."))
 ```
 
 - UCs excluídas pelo critério de extensão da série: `r sum(t5$n_grupos >= crit_min_grupos & t5$anos_com_deteccao >= crit_min_anos & t5$extensao < crit_min_extensao)`. São UCs que entraram no monitoramento em 2022 ou 2023.
@@ -635,13 +641,13 @@ g3 <- ggplot(d5, aes(x = media, y = rotulo, colour = evidencia)) +
     facet_wrap(~ especie, scales = "free_y", ncol = 2) +
     scale_y_discrete(labels = function(x) sub(".*___", "", x)) +
     scale_colour_manual(values = cores_ev, labels = rot_ev, drop = FALSE) +
-    labs(x = "Tendência de grupos (%/ano, IC 95%)", y = NULL, colour = "IC 95%") +
+    labs(x = paste0("Tendência de grupos (%/ano, ", ict, ")"), y = NULL, colour = ict) +
     theme_bw() + theme(legend.position = "top", strip.text = element_text(face = "italic"),
                        axis.text.y = element_text(size = 6))
 salva(g3, "F3_tendencia_por_uc.png", w = 10, h = 12)
 ```
 
-**Figura 3.** Tendência de grupos por UC (% ao ano, média e IC 95%), só UCs classificáveis. Entre parênteses: número de grupos detectados e primeiro e último ano amostrados. Cor: IC 95% abaixo de zero (declínio), acima (aumento) ou incluindo zero.
+**Figura 3.** Tendência de grupos por UC (% ao ano, média e `r ict`), só UCs classificáveis. Entre parênteses: número de grupos detectados e primeiro e último ano amostrados. Cor: `r ict` abaixo de zero (declínio), acima (aumento) ou incluindo zero.
 
 ```{r t5b}
 t5 |>
@@ -650,8 +656,8 @@ t5 |>
               `Anos amostrados` = anos_amostrados,
               `Anos com detecção` = anos_com_deteccao,
               `Série` = paste0(ano_ini, "–", ano_fim),
-              `%/ano (IC 95%)` = ic(media, ic_inf, ic_sup), Evidência = ev_txt(evidencia)) |>
-    tab(caption = "Tabela 5b. UCs classificáveis com IC 95% da tendência de grupos excluindo zero. Grupos: grupos detectados na UC (após truncagem). Anos amostrados: anos com esforço na UC. Anos com detecção: anos com pelo menos um grupo detectado. Série: primeiro e último ano amostrados. %/ano: tendência de grupos da UC (efeito fixo de ano + inclinação aleatória da UC), média e IC 95%. Evidência: declínio se o IC está abaixo de zero; aumento se acima.")
+              !!paste0("%/ano (", ict, ")") := ic(media, ic_inf, ic_sup), Evidência = ev_txt(evidencia)) |>
+    tab(caption = "Tabela 5b. UCs classificáveis com ICT da tendência de grupos excluindo zero. Grupos: grupos detectados na UC (após truncagem). Anos amostrados: anos com esforço na UC. Anos com detecção: anos com pelo menos um grupo detectado. Série: primeiro e último ano amostrados. %/ano: tendência de grupos da UC (efeito fixo de ano + inclinação aleatória da UC), média e ICT. Evidência: declínio se o IC está abaixo de zero; aumento se acima.")
 ```
 
 # Tabelas suplementares
@@ -727,7 +733,7 @@ le("S7_comparacao_g_sem_g_com.csv") |>
               `BFMI mín.` = num(min_BFMI, 2), p_eff = num(p_eff, 1),
               φ = num(phi, 2), `φ aj.` = num(phi_aj, 2),
               `Valor-p bayes.` = num(valor_p_bayesiano, 3)) |>
-    tab(caption = "Tabela S7. Comparação dos dois modelos de grupos de cada espécie (mesma estrutura de inclinação por UC). Principal: modelo escolhido pelo φ ajustado do g_sem. Grupos %/ano: tendência média de grupos (média e IC 95%). Rhat máx.: maior Rhat entre efeitos fixos e desvios. Divergências: transições divergentes. BFMI mín.: menor BFMI entre cadeias. p_eff: número efetivo de parâmetros (p_loo). φ e φ aj.: dispersão de Pearson e dispersão ajustada (ver Tabela S5). Valor-p bayes.: valor-p bayesiano do qui-quadrado.")
+    tab(caption = "Tabela S7. Comparação dos dois modelos de grupos de cada espécie (mesma estrutura de inclinação por UC). Principal: modelo escolhido pelo φ ajustado do g_sem. Grupos %/ano: tendência média de grupos (média e ICT). Rhat máx.: maior Rhat entre efeitos fixos e desvios. Divergências: transições divergentes. BFMI mín.: menor BFMI entre cadeias. p_eff: número efetivo de parâmetros (p_loo). φ e φ aj.: dispersão de Pearson e dispersão ajustada (ver Tabela S5). Valor-p bayes.: valor-p bayesiano do qui-quadrado.")
 ```
 
 ```{r s8, fig.height = 8}
@@ -797,13 +803,16 @@ Comparação das tendências e da detecção nas espécies das duas versões. Os
 ```{r comparacao-anterior}
 ant_s3 <- read_csv("data/versao_anterior/S3_resumo_modelos.csv", show_col_types = FALSE)
 ant_s4 <- read_csv("data/versao_anterior/S4_deteccao.csv", show_col_types = FALSE)
-## Tendencia anterior: %/ano = 100 (exp(beta/8) - 1); IC pelos quantis de beta
+## Tendencia anterior: %/ano = 100 (exp(beta/8) - 1). A tabela da versao
+## anterior so tem os quantis 2,5% e 97,5%; o IC de nivel_ic_tendencia e
+## aproximado pela normal: media +- z * DP de beta
+z_ic <- qnorm((1 + nivel_ic_tendencia) / 2)
 ant_tend <- ant_s3 |>
     filter(submodel == "state", term == "ano_c") |>
     transmute(especie = species,
               pct = 100 * (exp(mean / 8) - 1),
-              lo  = 100 * (exp(`2.5%` / 8) - 1),
-              hi  = 100 * (exp(`97.5%` / 8) - 1))
+              lo  = 100 * (exp((mean - z_ic * sd) / 8) - 1),
+              hi  = 100 * (exp((mean + z_ic * sd) / 8) - 1))
 nova <- t4p |>
     filter(componente %in% c("grupos", "individuos_sc")) |>
     select(especie, componente, media, ic_inf, ic_sup)
@@ -826,7 +835,7 @@ comp_ant |>
               `   ` = ev(i_lo, i_hi),
               `σ anterior (m)` = num(sig_ant, 1),
               `σ atual, 2025 (m)` = if_else(is.na(sig_nova), "", num(sig_nova, 1))) |>
-    tab(caption = "Tabela 6. Tendência média e σ de detecção nas duas versões. Anterior: indivíduos = tendência de indivíduos do modelo anterior (contagem de indivíduos, 2014–2022, com categoria e área da UC; 100·(exp(β/8) − 1) %/ano, média e IC 95%). Atual: grupos = tendência de grupos do modelo atual (2014–2025, UC típica). Atual: indivíduos (conservador) = tendência de indivíduos com tamanho estimado só com contagens totais. As colunas sem título classificam o IC 95% de cada estimativa (abaixo de zero: declínio; acima: aumento; inclui zero: inconclusivo). σ anterior: σ de detecção do modelo anterior (constante, mediana posterior, m). σ atual, 2025: σ do modelo atual em 2025 (m).")
+    tab(caption = "Tabela 6. Tendência média e σ de detecção nas duas versões. Anterior: indivíduos = tendência de indivíduos do modelo anterior (contagem de indivíduos, 2014–2022, com categoria e área da UC; 100·(exp(β/8) − 1) %/ano, média e ICT; o IC do modelo anterior é aproximado pela normal, média ± z·DP de β, porque a tabela daquela versão só tem os quantis de 2,5% e 97,5%). Atual: grupos = tendência de grupos do modelo atual (2014–2025, UC típica). Atual: indivíduos (conservador) = tendência de indivíduos com tamanho estimado só com contagens totais. As colunas sem título classificam o ICT de cada estimativa (abaixo de zero: declínio; acima: aumento; inclui zero: inconclusivo). σ anterior: σ de detecção do modelo anterior (constante, mediana posterior, m). σ atual, 2025: σ do modelo atual em 2025 (m).")
 ```
 
 ```{r f-comparacao, fig.height = 6}
@@ -840,13 +849,13 @@ g5 <- ggplot(dc, aes(media, especie, colour = versao)) +
     geom_vline(xintercept = 0, linetype = 2) +
     geom_pointrange(aes(xmin = ic_inf, xmax = ic_sup), position = position_dodge(width = 0.6), size = 0.3) +
     scale_colour_manual(values = c("grey55", "black", "#16A085")) +
-    labs(x = "Tendência média (%/ano, IC 95%)", y = NULL, colour = NULL) +
+    labs(x = paste0("Tendência média (%/ano, ", ict, ")"), y = NULL, colour = NULL) +
     guides(colour = guide_legend(ncol = 1)) +
     theme_bw() + theme(legend.position = "top", axis.text.y = element_text(face = "italic"))
 salva(g5, "F4_comparacao_versao_anterior.png", h = 6)
 ```
 
-**Figura 4.** Tendência média (% ao ano, média e IC 95%) nas duas versões: modelo anterior de indivíduos (2014–2022) e modelo atual, em grupos e em indivíduos (conservador), 2014–2025.
+**Figura 4.** Tendência média (% ao ano, média e `r ict`) nas duas versões: modelo anterior de indivíduos (2014–2022) e modelo atual, em grupos e em indivíduos (conservador), 2014–2025.
 
 - As tendências ficaram menos extremas e os intervalos, mais estreitos. Três motivos: (1) com indivíduos, poucos avistamentos de grupos grandes pesavam muito; (2) o período passou de 8 para 11 anos; (3) a versão anterior estimava a tendência numa UC de referência (categoria e área), e a variância entre UCs era muito maior (sigma [ano_c|cnuc] até 5,7 em *Tayassu*).
 - Declínio com evidência nas duas versões: `r x <- comp_ant$especie[comp_ant$hi < 0 & !is.na(comp_ant$g_hi) & comp_ant$g_hi < 0]; paste0("*", x, "*", collapse = ", ")`. Perderam a evidência: `r x <- comp_ant$especie[comp_ant$hi < 0 & !is.na(comp_ant$g_hi) & comp_ant$g_hi >= 0]; if (length(x)) paste0("*", x, "*", collapse = ", ") else "nenhuma"`.
@@ -867,7 +876,8 @@ salva(g5, "F4_comparacao_versao_anterior.png", h = 6)
 - **Transição divergente**: o amostrador NUTS não conseguiu seguir a curvatura da posterior; muitas indicam estimativas possivelmente viesadas.
 - **BFMI**: fração de informação ausente; < 0,3 indica exploração ineficiente (típico de "funis" dos efeitos aleatórios).
 - **Profundidade máxima da árvore**: limite de passos do NUTS por iteração; atingi-lo com frequência indica posterior de geometria difícil.
-- **IC 95%**: intervalo de credibilidade (quantis 2,5% e 97,5% da posterior).
+- **IC 95%**: intervalo de credibilidade (quantis 2,5% e 97,5% da posterior); usado em densidades, detecção e parâmetros.
+- **IC 90%**: intervalo de credibilidade com os quantis 5% e 95% da posterior; usado nas tendências (coeficientes de ano). IC 90% abaixo de zero equivale a P(declínio) > 0,95.
 - **P(declínio)**: fração dos sorteios da posterior com tendência negativa.
 
 # Reprodutibilidade
@@ -882,6 +892,7 @@ Rscript -e 'rmarkdown::render("relatorio_v2.Rmd")'            # este relatório
 ```
 
 - Uma espécie só: `Rscript roda_especie.R "Tayassu pecari"`.
+- Mudou o nível do IC das tendências (`nivel_ic_tendencia`) ou os critérios de UC classificável no `00_config.R`? Refaça só as tendências, sem reajustar modelos, e depois o 09 e o relatório: `REFAZ_TENDENCIAS=1 Rscript 08_roda_todas.R > logs/08_tendencias.log 2>&1`. O 09 para com uma mensagem se as tendências gravadas tiverem outro nível.
 - Sementes: os modelos de tamanho usam `seed = 1`. Os modelos de grupos passaram a usar `seed = 1` só depois dos ajustes desta versão; um reajuste do zero dá resultados ligeiramente diferentes (variação de Monte Carlo), mas os arquivos `.rds` em `ajustes_v2/` reproduzem exatamente as tabelas.
 - Se as tabelas já tinham sido geradas antes de uma mudança no 09, apague `relatorio_v2/cache/` antes de rodar de novo.
 - Configurações (pastas, faixas, critérios, iterações): `00_config.R`. Mudar `versao` cria pastas novas, sem apagar as anteriores.

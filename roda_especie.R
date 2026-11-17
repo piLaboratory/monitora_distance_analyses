@@ -11,8 +11,14 @@ source(Sys.getenv("CONFIG_ANALISE", "00_config.R"))  ## pastas e criterios
 t0 <- Sys.time()
 message("=== ", especie, " | inicio ", format(t0), " ===")
 
-source("05_ajusta_grupos.R")
-source("06_ajusta_tamanho.R")
+## Com o segundo argumento "so_tendencias", pula o 05 e o 06 (usa os modelos
+## ja ajustados e a escolha gravada) e so refaz o 07. Uso: mudar o nivel do IC
+## das tendencias ou os criterios de UC classificavel no 00_config.R.
+so_tendencias <- length(args) >= 2 && args[2] == "so_tendencias"
+if (!so_tendencias) {
+    source("05_ajusta_grupos.R")
+    source("06_ajusta_tamanho.R")
+}
 
 ## Modelo principal (escolhido no 05 pelo phi ajustado)
 forcar_modelo <- NULL

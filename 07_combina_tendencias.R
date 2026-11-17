@@ -94,8 +94,10 @@ nd_s <- min(nrow(beta_g), map_int(eta, ~ nrow(.x$med)))
 ig <- sample(nrow(beta_g), nd_s)
 it <- map(eta, ~ sample(nrow(.x$med), nd_s))
 
-resume <- function(p) c(media = mean(p), ic_inf = unname(quantile(p, 0.025)),
-                        ic_sup = unname(quantile(p, 0.975)), P_declinio = mean(p < 0))
+## Tendencias: IC com o nivel nivel_ic_tendencia (00_config.R)
+a_ic <- (1 - nivel_ic_tendencia) / 2
+resume <- function(p) c(media = mean(p), ic_inf = unname(quantile(p, a_ic)),
+                        ic_sup = unname(quantile(p, 1 - a_ic)), P_declinio = mean(p < 0))
 pct <- function(razao) 100 * (razao^(1 / R_anos) - 1)
 
 ################################################################################
@@ -112,10 +114,11 @@ comp <- list(
 tend_media <- imap_dfr(comp, ~ c(componente = .y, resume(.x))) |>
     mutate(across(-componente, as.numeric),
            especie = especie, modelo = modelo_grupos,
-           inclinacao_uc = inclinacao_uc, .before = 1)
+           inclinacao_uc = inclinacao_uc, .before = 1,
+           nivel_ic = nivel_ic_tendencia)
 print(as.data.frame(tend_media), digits = 3)
 
-## Densidades (por ha) no primeiro e no ultimo ano, UC tipica
+## Densidades (por ha) no primeiro e no ultimo ano, UC tipica (IC 95%)
 q <- function(x) c(media = mean(x), ic_inf = unname(quantile(x, 0.025)),
                    ic_sup = unname(quantile(x, 0.975)))
 dens <- list(
@@ -167,7 +170,8 @@ tend_uc <-
            evidencia = case_when(!inclinacao_uc ~ "sem inclinacao por UC",
                                  !classificavel ~ "nao classificavel",
                                  TRUE           ~ evidencia),
-           especie = especie, modelo = modelo_grupos) |>
+           especie = especie, modelo = modelo_grupos,
+           nivel_ic = nivel_ic_tendencia) |>
     left_join(distinct(monitora.mam, cnuc, uc), by = "cnuc") |>
     relocate(especie, modelo, cnuc, uc, componente) |>
     arrange(componente, desc(classificavel), media)

@@ -103,15 +103,16 @@ message(sprintf("%s: g_sem com inclinacao -> Rhat %.3f, BFMI %.2f => %s inclinac
 ################################################################################
 ## Comparacao
 ################################################################################
-## 1. Tendencia media de grupos (%/ano), com IC 95%
+## 1. Tendencia media de grupos (%/ano), com IC de nivel nivel_ic_tendencia
 R_anos <- ano_max - ano_min
 tendencia <- function(fit) {
     ## coeficientes fixos de abundancia; a coluna de ano_c e localizada pelo nome
     b <- ubms::extract(fit, "beta_state")[[1]]
     b <- b[, match("ano_c", ubms:::beta_names(fit["state"]))]
     p <- 100 * (exp(b / R_anos) - 1)
-    tibble(pct_ano = mean(p), ic_inf = quantile(p, 0.025),
-           ic_sup = quantile(p, 0.975), P_declinio = mean(b < 0))
+    a <- (1 - nivel_ic_tendencia) / 2
+    tibble(pct_ano = mean(p), ic_inf = quantile(p, a),
+           ic_sup = quantile(p, 1 - a), P_declinio = mean(b < 0))
 }
 
 ## 2. Dispersao de Pearson nos totais por UC-ano, com o valor esperado

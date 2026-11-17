@@ -26,6 +26,11 @@
 ##   S11_densidade_observada.csv   densidade observada aproximada por UC-ano
 ##   T4b_tendencia_uc_ao_acaso.csv tendencia e P(declinio) numa UC tomada ao acaso
 ##
+## Tendencias (T4, T4b, T5, S7): IC com o nivel nivel_ic_tendencia (00_config.R),
+## coluna nivel_ic. T4, T5 e S7 vem do 07/08; se o nivel mudar, refaca antes:
+##   REFAZ_TENDENCIAS=1 Rscript 08_roda_todas.R
+## Demais tabelas: IC 95%.
+##
 ## Retomavel: os calculos de cada especie ficam em relatorio_<versao>/cache/;
 ## para refazer uma especie, apague o arquivo dela no cache.
 ## O mais demorado e o gof() (alguns minutos por especie).
@@ -300,13 +305,13 @@ tend_uc_nova <- function() {
     comp <- list(grupos        = pct(exp(incl_nova)),
                  individuos    = pct(exp(incl_nova) * razao_tam$individuos),
                  individuos_sc = pct(exp(incl_nova) * razao_tam$individuos_sc))
-    imap_dfr(comp, ~ tibble(especie = especie, modelo = esc$modelo_principal,
-                            inclinacao_uc = esc$inclinacao_uc, componente = .y,
-                            media = mean(.x), ic_inf = unname(quantile(.x, 0.025)),
-                            ic_sup = unname(quantile(.x, 0.975)), P_declinio = mean(.x < 0)))
+    ## Guarda os sorteios (o resumo, com o nivel do IC do 00_config.R, e feito
+    ## ao gravar a T4b; assim mudar o nivel nao exige refazer este calculo)
+    list(especie = especie, modelo = esc$modelo_principal,
+         inclinacao_uc = esc$inclinacao_uc, sorteios = comp)
 }
 for (especie in especies) {
-    arq_nova <- file.path(dir_cache, paste0(gsub(" ", "_", especie), "_uc_nova.rds"))
+    arq_nova <- file.path(dir_cache, paste0(gsub(" ", "_", especie), "_uc_nova_sorteios.rds"))
     if (file.exists(arq_nova)) next
     message(sprintf("09 (UC ao acaso): %s", especie))
     source("04_prepara_dados_uc_ano.R")
@@ -380,6 +385,13 @@ grava(junta("s9"), "S9_densidade_por_ano.csv")
 
 ## T4. Tendencia media (resultados do 07/08)
 tend <- read_csv(file.path(dir_resultados, "todas_tend_media.csv"), show_col_types = FALSE)
+## O nivel do IC das tendencias do 07 deve ser o do 00_config.R
+confere_nivel <- function(x, arq) {
+    if (!"nivel_ic" %in% names(x) || any(abs(x$nivel_ic - nivel_ic_tendencia) > 1e-9))
+        stop(arq, ": tendencias com IC de nivel diferente de nivel_ic_tendencia = ",
+             nivel_ic_tendencia, ". Rode antes: REFAZ_TENDENCIAS=1 Rscript 08_roda_todas.R")
+}
+confere_nivel(tend, "todas_tend_media.csv")
 t4 <- tend |>
     mutate(evidencia = case_when(ic_sup < 0 ~ "declinio", ic_inf > 0 ~ "aumento",
                                  TRUE ~ "inconclusivo")) |>
@@ -399,6 +411,7 @@ serie_uc <- series |>
 ## sem precisar refazer o 07.
 tend_uc <- read_csv(file.path(dir_resultados, "todas_tend_uc.csv"), show_col_types = FALSE,
                     col_types = cols(cnuc = col_character()))
+confere_nivel(tend_uc, "todas_tend_uc.csv")
 t5 <- tend_uc |>
     filter(principal, especie %in% escolha$especie[escolha$inclinacao_uc]) |>
     select(-any_of(c("ano_ini", "ano_fim", "extensao"))) |>
@@ -442,7 +455,13 @@ grava(junta("s5") |>
                     by = c("especie", "modelo")),
       "S5_qualidade_ajuste.csv")
 grava(junta("s6"), "S6_parametros_tamanho.csv")
+## S7: a tendencia de grupos de cada modelo vem do 07 (T4, com o IC de
+## nivel_ic_tendencia), e nao da comparacao gravada pelo 05
 grava(comparacao |>
+          select(-any_of(c("pct_ano", "ic_inf", "ic_sup", "P_declinio"))) |>
+          left_join(filter(tend, componente == "grupos") |>
+                        select(especie, modelo, pct_ano = media, ic_inf, ic_sup, P_declinio),
+                    by = c("especie", "modelo")) |>
           left_join(select(junta("s5"), especie, modelo, qui_quadrado, valor_p_bayesiano),
                     by = c("especie", "modelo")) |>
           left_join(select(escolha, especie, modelo_principal), by = "especie") |>
@@ -451,8 +470,15 @@ grava(comparacao |>
       "S7_comparacao_g_sem_g_com.csv")
 grava(junta("s8"), "S8_contagens_parciais.csv")
 
-## T4b. Tendencia numa UC tomada ao acaso
-grava(map_dfr(especies, ~ readRDS(file.path(dir_cache, paste0(gsub(" ", "_", .x), "_uc_nova.rds")))),
-      "T4b_tendencia_uc_ao_acaso.csv")
+## T4b. Tendencia numa UC tomada ao acaso (IC com nivel_ic_tendencia)
+a_ic <- (1 - nivel_ic_tendencia) / 2
+grava(map_dfr(especies, function(sp) {
+    r <- readRDS(file.path(dir_cache, paste0(gsub(" ", "_", sp), "_uc_nova_sorteios.rds")))
+    imap_dfr(r$sorteios, ~ tibble(especie = r$especie, modelo = r$modelo,
+                                  inclinacao_uc = r$inclinacao_uc, componente = .y,
+                                  media = mean(.x), ic_inf = unname(quantile(.x, a_ic)),
+                                  ic_sup = unname(quantile(.x, 1 - a_ic)),
+                                  P_declinio = mean(.x < 0), nivel_ic = nivel_ic_tendencia))
+}), "T4b_tendencia_uc_ao_acaso.csv")
 
 message("09: tabelas gravadas em ", dir_tab)
