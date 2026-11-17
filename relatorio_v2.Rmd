@@ -600,16 +600,66 @@ salva(g4, "FS8_contagens_parciais.png", w = 10, h = 10)
 | Sobredispersão | IC ampliado por √φ depois do ajuste | g_com no próprio modelo, se φ ajustado > 1,5 | estimação em vez de correção de pior caso |
 | UC classificável | ≥ 15 detecções em ≥ 3 anos | ≥ 10 grupos em ≥ 3 anos | grupos são menos numerosos que indivíduos |
 
-Tendência média nas espécies com resultado na versão anterior (%/ano):
+Comparação das tendências e da detecção nas espécies das duas versões. Os resultados da versão anterior estão em `data/versao_anterior/` (Tabelas S1, S3 e S4 daquela versão; modelo de indivíduos, 2014–2022, `ano_c` em 8 anos).
 
-| Espécie | Anterior (indivíduos) | Esta versão (grupos) |
-|---|---|---|
-| *Tayassu pecari* | −32,1 | `r with(filter(t4p, especie == "Tayassu pecari", componente == "grupos"), ic(media, ic_inf, ic_sup))` |
-| *Guerlinguetus aestuans* | −22,6 | `r with(filter(t4p, especie == "Guerlinguetus aestuans", componente == "grupos"), ic(media, ic_inf, ic_sup))` |
-| *Eira barbara* | −11,5 | `r with(filter(t4p, especie == "Eira barbara", componente == "grupos"), ic(media, ic_inf, ic_sup))` |
-| *Dicotyles tajacu* | −9,6 | `r with(filter(t4p, especie == "Dicotyles tajacu", componente == "grupos"), ic(media, ic_inf, ic_sup))` |
+```{r comparacao-anterior}
+ant_s3 <- read_csv("data/versao_anterior/S3_resumo_modelos.csv", show_col_types = FALSE)
+ant_s4 <- read_csv("data/versao_anterior/S4_deteccao.csv", show_col_types = FALSE)
+## Tendencia anterior: %/ano = 100 (exp(beta/8) - 1); IC pelos quantis de beta
+ant_tend <- ant_s3 |>
+    filter(submodel == "state", term == "ano_c") |>
+    transmute(especie = species,
+              pct = 100 * (exp(mean / 8) - 1),
+              lo  = 100 * (exp(`2.5%` / 8) - 1),
+              hi  = 100 * (exp(`97.5%` / 8) - 1))
+nova <- t4p |>
+    filter(componente %in% c("grupos", "individuos_sc")) |>
+    select(especie, componente, media, ic_inf, ic_sup)
+comp_ant <- ant_tend |>
+    left_join(filter(nova, componente == "grupos") |>
+                  select(especie, g = media, g_lo = ic_inf, g_hi = ic_sup), by = "especie") |>
+    left_join(filter(nova, componente == "individuos_sc") |>
+                  select(especie, i = media, i_lo = ic_inf, i_hi = ic_sup), by = "especie") |>
+    left_join(ant_s4 |> select(especie = species, sig_ant = sigma_m_median), by = "especie") |>
+    left_join(t2 |> select(especie, sig_nova = sigma_m_2025_media), by = "especie") |>
+    arrange(pct)
+ev <- function(lo, hi) case_when(is.na(lo) ~ "", hi < 0 ~ "declínio", lo > 0 ~ "aumento",
+                                 TRUE ~ "inconclusivo")
+comp_ant |>
+    transmute(Espécie = especie,
+              `Anterior: indivíduos` = ic(pct, lo, hi), ` ` = ev(lo, hi),
+              `Atual: grupos` = if_else(is.na(g), "não analisada", ic(g, g_lo, g_hi)),
+              `  ` = ev(g_lo, g_hi),
+              `Atual: indivíduos sem censura` = if_else(is.na(i), "", ic(i, i_lo, i_hi)),
+              `   ` = ev(i_lo, i_hi),
+              `σ anterior (m)` = num(sig_ant, 1),
+              `σ atual, 2025 (m)` = if_else(is.na(sig_nova), "", num(sig_nova, 1))) |>
+    tab(caption = "Tabela 6. Tendência média (%/ano, IC 95%) e σ de detecção nas duas versões. Versão anterior: contagem de indivíduos, 2014–2022, com categoria e área da UC no modelo; σ constante. Versão atual: grupos, 2014–2025, UC típica.")
+```
 
-- As tendências ficaram menos extremas: com indivíduos, poucos avistamentos de grupos grandes pesavam muito na tendência; o período mais longo também reduz o efeito de anos isolados.
+```{r f-comparacao, fig.height = 6}
+dc <- bind_rows(
+    transmute(comp_ant, especie, versao = "Anterior (indivíduos, 2014–2022)", media = pct, ic_inf = lo, ic_sup = hi),
+    transmute(comp_ant, especie, versao = "Atual: grupos (2014–2025)", media = g, ic_inf = g_lo, ic_sup = g_hi),
+    transmute(comp_ant, especie, versao = "Atual: indivíduos sem censura", media = i, ic_inf = i_lo, ic_sup = i_hi)) |>
+    filter(!is.na(media)) |>
+    mutate(especie = factor(especie, comp_ant$especie, abrev(comp_ant$especie)))
+g5 <- ggplot(dc, aes(media, especie, colour = versao)) +
+    geom_vline(xintercept = 0, linetype = 2) +
+    geom_pointrange(aes(xmin = ic_inf, xmax = ic_sup), position = position_dodge(width = 0.6), size = 0.3) +
+    scale_colour_manual(values = c("grey55", "black", "#16A085")) +
+    labs(x = "Tendência média (%/ano, IC 95%)", y = NULL, colour = NULL) +
+    guides(colour = guide_legend(ncol = 1)) +
+    theme_bw() + theme(legend.position = "top", axis.text.y = element_text(face = "italic"))
+salva(g5, "F4_comparacao_versao_anterior.png", h = 6)
+```
+
+**Figura 4.** Tendência média nas duas versões.
+
+- As tendências ficaram menos extremas e os intervalos, mais estreitos. Três motivos: (1) com indivíduos, poucos avistamentos de grupos grandes pesavam muito; (2) o período passou de 8 para 11 anos; (3) a versão anterior estimava a tendência numa UC de referência (categoria e área), e a variância entre UCs era muito maior (sigma [ano_c|cnuc] até 5,7 em *Tayassu*).
+- Declínio com evidência nas duas versões: `r x <- comp_ant$especie[comp_ant$hi < 0 & !is.na(comp_ant$g_hi) & comp_ant$g_hi < 0]; paste0("*", x, "*", collapse = ", ")`. Perderam a evidência: `r x <- comp_ant$especie[comp_ant$hi < 0 & !is.na(comp_ant$g_hi) & comp_ant$g_hi >= 0]; if (length(x)) paste0("*", x, "*", collapse = ", ") else "nenhuma"`.
+- *Pithecia irrorata* estava na versão anterior, mas não atinge o critério atual de seleção.
+- σ é parecido nas duas versões quando a truncagem é parecida; diferenças refletem a nova truncagem (percentil 90), as novas classes e o σ variando com o ano.
 
 # Glossário
 
