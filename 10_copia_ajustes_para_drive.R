@@ -4,11 +4,13 @@
 ##   - g_sem com inclinacao por UC (teste usado pelo 05)
 ##   - modelos de tamanho usados no 07 (_tam_dist e _tam_dist_sc)
 ##   - escolha_modelos.csv e comparacao_modelos.csv
+##   - a pasta de resultados (resultados_v2/), pequena, lida pelo 09
 ## Ficam de fora os _tam.rds (nao usados) e ajustes substituidos por versoes
 ## com mais iteracoes.
 ##
 ## Uso (na pasta do projeto):  Rscript 10_copia_ajustes_para_drive.R
-## Quem recebe: copiar a pasta ajustes_v2/ para dentro da pasta do projeto.
+## Quem recebe: copiar as pastas ajustes_v2/ e resultados_v2/ para dentro da
+## pasta do projeto (ver INSTRUCOES_WINDOWS.md).
 
 library(readr)
 source(Sys.getenv("CONFIG_ANALISE", "00_config.R"))
@@ -35,3 +37,9 @@ ok <- file.copy(arqs, destino, overwrite = TRUE)
 stopifnot(all(ok))
 cat(sprintf("%d arquivos copiados para %s (%.1f GB)\n",
             length(arqs), destino, sum(file.size(arqs)) / 1e9))
+
+## Resultados combinados (07/08), lidos pelo 09; nao estao no git
+res <- list.files(dir_resultados, full.names = TRUE)
+dir.create(file.path("para_drive", dir_resultados), showWarnings = FALSE)
+stopifnot(all(file.copy(res, file.path("para_drive", dir_resultados), overwrite = TRUE)))
+cat(sprintf("%d arquivos copiados para %s\n", length(res), file.path("para_drive", dir_resultados)))
