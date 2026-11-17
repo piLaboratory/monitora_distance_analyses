@@ -41,7 +41,7 @@ O repositório já contém os dados (`data/`), os scripts e as tabelas do relat�
 
 ## 4. Baixar os modelos ajustados (Google Drive)
 
-Os modelos ajustados (cerca de 6 GB) e os resultados combinados não estão no GitHub, por serem grandes. Estão no Google Drive do laboratório: <!-- incluir o link da pasta do drive -->
+Os modelos ajustados (cerca de 6 GB) e os resultados combinados não estão no GitHub, por serem grandes. Estão no Google Drive : https://drive.google.com/drive/folders/1TJQcszdWOod2QO5mVitqL2QGFhzmDTbG?usp=drive_link
 
 Baixe as duas pastas e coloque-as **dentro da pasta do projeto**, com estes nomes exatos:
 
