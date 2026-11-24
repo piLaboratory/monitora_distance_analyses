@@ -169,7 +169,30 @@ Scripts: `05_ajusta_grupos.R` (grupos), `06_ajusta_tamanho.R` (tamanho), `07_com
 - *Binomial negativa*: os tamanhos são muito mais variáveis que Poisson (forma estimada entre ~0,2 e ~3).
 - *`ano_c` e `(ano_c || cnuc)`*: o tamanho médio pode mudar ao longo do tempo e entre UCs; essa mudança entra na tendência de indivíduos.
 - *`dist_c` (correção do vies de tamanho)*: grupos maiores tendem a ser detectados mais longe; sem correção, o tamanho médio fica superestimado. O tamanho é previsto **a distância zero**, onde a detecção não depende do tamanho.
-- *Modelo conservador (sem censura)*, por oposição ao **não conservador** (com censura): o mesmo modelo, sem `cens()`, só com as contagens totais. *Justificativa*: a fração de contagens parciais aumentou ao longo do tempo (Tabela S8), provavelmente por mudança na forma de registrar, e o modelo censurado passa a atribuir tamanhos grandes a esses grupos, gerando tendências positivas espúrias no tamanho. O modelo sem censura é chamado de **conservador** neste relatório.
+- *Modelo conservador (sem censura)*, por oposição ao **não conservador** (com censura): o mesmo modelo, sem `cens()`, só com as contagens totais. O motivo de haver as duas versões está logo abaixo.
+
+**Contagens parciais ao longo do tempo: por que há duas versões do tamanho**
+
+```{r parciais-periodo}
+## Fracao de contagens parciais no inicio (2014-2018) e no fim (2022-2025)
+fp <- le("S8_contagens_parciais.csv") |>
+    mutate(periodo = case_when(ano <= 2018 ~ "ini", ano >= 2022 ~ "fim")) |>
+    filter(!is.na(periodo)) |>
+    summarise(frac = sum(n_parciais) / sum(n_avistamentos), .by = c(especie, periodo)) |>
+    pivot_wider(names_from = periodo, values_from = frac) |>
+    mutate(dif = fim - ini) |>
+    arrange(desc(dif))
+fp_sobe <- filter(fp, dif >= 0.10)
+fp_txt <- paste0("*", abrev(fp_sobe$especie), "* (", num(100 * fp_sobe$ini, 0), "% → ",
+                 num(100 * fp_sobe$fim, 0), "%)", collapse = ", ")
+```
+
+- **O que é**: numa contagem parcial o observador viu o grupo, mas não conseguiu contar todos os indivíduos (por exemplo, macacos espalhados na copa ou um bando de queixadas passando correndo). O número anotado é só um limite inferior do tamanho do grupo.
+- **O problema**: a fração de contagens parciais **aumentou** ao longo do período nas espécies gregárias. Entre 2014–2018 e 2022–2025, ela subiu 10 pontos percentuais ou mais em `r fp_txt` (Figura S8). Nas espécies solitárias ou de grupos pequenos, a fração é baixa e quase não muda. Os dados não dizem por que a fração subiu; a explicação mais provável é uma mudança na forma de registrar (protocolo ou equipes), e não no comportamento dos animais.
+- **Consequência**: se a fração de parciais muda no tempo, as duas formas de lidar com elas criam tendências no tamanho de grupo que não são biológicas, e a tendência de indivíduos herda essas tendências:
+    - *Não conservador (com censura): viés para cima.* Cada parcial puxa o tamanho estimado para cima, porque o modelo supõe que o grupo era maior que o contado. Com mais parciais nos anos recentes, o tamanho médio estimado sobe mesmo que o tamanho real seja constante.
+    - *Conservador (só contagens totais): provável viés para baixo.* É plausível que as parciais sejam sobretudo os grupos maiores, mais difíceis de contar. Ao descartá-las, as contagens totais restantes têm cada vez menos grupos grandes, e o tamanho estimado cai com o tempo.
+- **Como interpretar**: nas espécies em que a fração de parciais subiu, o tamanho e a tendência de indivíduos verdadeiros provavelmente estão **entre** as duas versões. Uma divergência grande entre elas indica esse problema, e não mudança real no tamanho dos grupos. Nas espécies em que a fração é baixa e estável, as duas versões coincidem. A tendência de **grupos** não depende das contagens parciais e é o resultado mais confiável.
 
 ## Combinação: densidade e tendência de indivíduos
 
@@ -498,7 +521,7 @@ rz <- t3 |>
     arrange(desc(razao))
 ```
 
-- O tamanho médio não conservador (com censura) supera o conservador em até `r num(max(rz$razao), 1)` vezes (*`r rz$especie[1]`*); acima de 2 vezes em `r paste0("*", abrev(rz$especie[rz$razao > 2]), "*", collapse = ", ")`. Como a fração de contagens parciais cresceu no período (Tabela S8), a censura atribui a esses grupos tamanhos grandes que não aparecem nas contagens totais. Por isso a densidade de indivíduos conservadora é a recomendada; a não conservadora é um limite superior.
+- O tamanho médio não conservador (com censura) supera o conservador em até `r num(max(rz$razao), 1)` vezes (*`r rz$especie[1]`*); acima de 2 vezes em `r paste0("*", abrev(rz$especie[rz$razao > 2]), "*", collapse = ", ")`. Como a fração de contagens parciais cresceu no período (Figura S8), a censura atribui a esses grupos tamanhos grandes que não aparecem nas contagens totais. A versão não conservadora é um limite superior. A conservadora é a recomendada para a densidade, mas pode subestimar o tamanho se as parciais forem os grupos maiores (ver Métodos, *Contagens parciais ao longo do tempo*).
 
 ```{r f1b, fig.height = 9}
 s9 <- le("S9_densidade_por_ano.csv") |> filter(componente %in% c("grupos", "individuos_sc"))
@@ -568,7 +591,7 @@ salva(g2, "F2_tendencia_media.png", h = 7)
 - `r ict` de grupos inteiramente abaixo de zero: `r d <- filter(t4w, evidencia == "declinio"); if (nrow(d)) paste0("*", d$especie, "* (", d$grupos, ")", collapse = "; ") else "nenhuma"`.
 - `r ict` de grupos inteiramente acima de zero: `r d <- filter(t4w, evidencia == "aumento"); if (nrow(d)) paste0("*", d$especie, "*", collapse = ", ") else "nenhuma espécie"`.
 - IC de grupos incluindo zero, mas P(declínio) ≥ 0,90: `r d <- filter(t4w, evidencia == "inconclusivo", P_declinio >= 0.9); paste0("*", d$especie, "*", collapse = ", ")`.
-- Indivíduos não conservador × conservador: nas espécies gregárias com aumento das contagens parciais (primatas, *Dicotyles*, *Nasua*), a versão não conservadora dá tendências mais altas, porque o tamanho censurado cresce com a fração de parciais (Tabela S8). Recomenda-se interpretar grupos e indivíduos (conservador).
+- Indivíduos não conservador × conservador: nas espécies gregárias com aumento das contagens parciais (primatas, *Dicotyles*, *Nasua*; Figura S8), a versão não conservadora dá tendências mais altas, porque o tamanho censurado cresce com a fração de parciais. A conservadora tende ao viés oposto: se as parciais são os grupos maiores, descartá-las reduz o tamanho médio nos anos recentes. Por isso, nessas espécies, um declínio de indivíduos (conservador) sem declínio de grupos deve ser lido com cautela, e a tendência de indivíduos verdadeira provavelmente está entre as duas versões. A tendência de grupos é o resultado mais confiável.
 
 ### Tendência numa UC tomada ao acaso
 
@@ -747,7 +770,7 @@ g4 <- ggplot(s8, aes(ano, frac_parcial)) +
 salva(g4, "FS8_contagens_parciais.png", w = 10, h = 10)
 ```
 
-**Figura S8.** Fração de contagens parciais por ano e espécie, entre os avistamentos usados no modelo de tamanho; tamanho do ponto: número de avistamentos no ano. Tabela completa em `S8_contagens_parciais.csv` (colunas: espécie, ano, avistamentos, contagens parciais, fração parcial).
+**Figura S8.** Fração de contagens parciais (avistamentos em que nem todos os indivíduos do grupo foram contados; `cont_tot_par == "parcial"`) por ano e espécie, entre os avistamentos usados no modelo de tamanho. Tamanho do ponto: número de avistamentos no ano. *Para que serve*: diagnosticar se a fração de parciais muda ao longo do tempo. Quando ela sobe, como nas espécies gregárias, as duas versões do tamanho de grupo ganham tendências não biológicas: a não conservadora (com censura) para cima e a conservadora (só contagens totais) provavelmente para baixo. As tendências de indivíduos dessas espécies devem então ser lidas com cautela (ver Métodos, *Contagens parciais ao longo do tempo*). Onde a fração é baixa e estável, as duas versões coincidem. Tabela completa em `S8_contagens_parciais.csv` (colunas: especie, ano, n_avistamentos, n_parciais, frac_parcial).
 
 ```{r s10, fig.height = 7}
 s10 <- le("S10_ucs_por_ano.csv")
